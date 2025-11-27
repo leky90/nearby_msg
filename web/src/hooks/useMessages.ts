@@ -1,9 +1,11 @@
 /**
  * useMessages Hook
  * Reactive hook for querying messages from RxDB
+ * Uses TanStack Query for initial load and caching, with reactive subscriptions for real-time updates
  */
 
 import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import type { Message } from '../domain/message';
 import { watchGroupMessages, getDatabase } from '../services/db';
 
@@ -28,8 +30,28 @@ export interface UseMessagesResult {
 }
 
 /**
+ * Query function for fetching messages from RxDB (for TanStack Query)
+ */
+async function fetchMessages(groupId: string, limit: number): Promise<Message[]> {
+  const db = await getDatabase();
+  const query = db.messages
+    .find({
+      selector: {
+        group_id: groupId,
+      },
+      sort: [{ created_at: 'asc' }],
+      limit,
+    })
+    .exec();
+
+  const results = await query;
+  return results.map((doc) => doc.toJSON() as Message);
+}
+
+/**
  * useMessages hook
  * Provides reactive message queries from RxDB
+ * Uses TanStack Query for initial load and caching, with reactive subscriptions for real-time updates
  */
 export function useMessages({
   groupId,
@@ -37,50 +59,34 @@ export function useMessages({
   reactive = true,
 }: UseMessagesOptions): UseMessagesResult {
   const [messages, setMessages] = useState<Message[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
 
-  const loadMessages = async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
-      const db = await getDatabase();
+  // Use TanStack Query for initial load and caching
+  const {
+    data: initialMessages,
+    isLoading: queryLoading,
+    error: queryError,
+    refetch: refresh,
+  } = useQuery({
+    queryKey: ['messages', groupId, limit],
+    queryFn: () => fetchMessages(groupId, limit),
+    enabled: !!groupId,
+    staleTime: 30 * 1000, // 30 seconds (messages change frequently)
+    retry: 2,
+  });
 
-      const query = db.messages
-        .find({
-          selector: {
-            group_id: groupId,
-          },
-          sort: [{ created_at: 'asc' }],
-          limit,
-        })
-        .exec();
-
-      const results = await query;
-      const messageArray = results.map((doc) => doc.toJSON() as Message);
-      setMessages(messageArray);
-    } catch (err) {
-      setError(err instanceof Error ? err : new Error('Failed to load messages'));
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
+  // Update messages when query data changes
   useEffect(() => {
-    if (!groupId) {
-      setMessages([]);
-      setIsLoading(false);
+    if (initialMessages) {
+      setMessages(initialMessages);
+    }
+  }, [initialMessages]);
+
+  // Set up reactive subscription for real-time updates
+  useEffect(() => {
+    if (!groupId || !reactive) {
       return;
     }
 
-    // Initial load
-    void loadMessages();
-
-    if (!reactive) {
-      return;
-    }
-
-    // Set up reactive subscription using watchGroupMessages
     let unsubscribe: (() => void) | null = null;
 
     const setupReactive = async () => {
@@ -89,11 +95,9 @@ export function useMessages({
           // Apply limit if specified
           const limitedMessages = limit ? messageArray.slice(-limit) : messageArray;
           setMessages(limitedMessages);
-          setIsLoading(false);
         });
       } catch (err) {
-        setError(err instanceof Error ? err : new Error('Failed to setup reactive query'));
-        setIsLoading(false);
+        console.error('Failed to setup reactive query:', err);
       }
     };
 
@@ -104,14 +108,15 @@ export function useMessages({
         unsubscribe();
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groupId, limit, reactive]);
 
   return {
     messages,
-    isLoading,
-    error,
-    refresh: loadMessages,
+    isLoading: queryLoading,
+    error: queryError instanceof Error ? queryError : queryError ? new Error(String(queryError)) : null,
+    refresh: async () => {
+      await refresh();
+    },
   };
 }
 

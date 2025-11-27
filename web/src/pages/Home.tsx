@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Users, MapPin, Star } from "lucide-react";
 import { SOSButton } from "../components/common/SOSButton";
 import { Button } from "../components/ui/button";
@@ -21,18 +22,17 @@ import { StatusIndicator } from "../components/common/StatusIndicator";
 import { ConnectivityStatus } from "../components/common/ConnectivityStatus";
 import { Skeleton } from "../components/ui/skeleton";
 import {
-  getFavorites,
+  fetchFavorites,
   addFavorite,
   removeFavorite,
 } from "../services/favorite-service";
 import { getGroup } from "../services/group-service";
 import { getUnreadCount } from "../services/message-service";
 import { getCurrentLocation } from "../services/location-service";
-import { getStatus } from "../services/status-service";
+import { fetchStatus } from "../services/status-service";
 import { calculateDistance } from "../domain/group";
 import type { Group } from "../domain/group";
 import type { FavoriteGroup } from "../domain/favorite_group";
-import type { UserStatus } from "../domain/user_status";
 
 type HomeView = "home" | "create-group";
 
@@ -48,19 +48,35 @@ export function Home() {
   const [favoriteGroups, setFavoriteGroups] = useState<
     FavoriteGroupWithDetails[]
   >([]);
-  const [currentStatus, setCurrentStatus] = useState<UserStatus | null>(null);
-  const [isLoadingFavorites, setIsLoadingFavorites] = useState(true);
-  const [isLoadingStatus, setIsLoadingStatus] = useState(true);
 
   // TODO: Get default/selected group ID from context or state
   const defaultGroupId = undefined; // Will be set when groups are implemented
 
-  // Load favorite groups
+  // Use TanStack Query for status fetching
+  const { data: currentStatus, isLoading: isLoadingStatus } = useQuery({
+    queryKey: ["status"],
+    queryFn: fetchStatus,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    retry: 3,
+  });
+
+  // Use TanStack Query for favorites fetching
+  const { data: favorites, isLoading: isLoadingFavorites } = useQuery({
+    queryKey: ["favorites"],
+    queryFn: fetchFavorites,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    retry: 3,
+  });
+
+  // Load favorite groups with details (group info, distance, unread count)
   useEffect(() => {
-    const loadFavorites = async () => {
-      setIsLoadingFavorites(true);
+    const loadFavoriteDetails = async () => {
+      if (!favorites || favorites.length === 0) {
+        setFavoriteGroups([]);
+        return;
+      }
+
       try {
-        const favorites = await getFavorites();
         const location = await getCurrentLocation();
 
         // Load group details and calculate distances
@@ -96,31 +112,12 @@ export function Home() {
           )
         );
       } catch (err) {
-        console.error("Failed to load favorites:", err);
-      } finally {
-        setIsLoadingFavorites(false);
+        console.error("Failed to load favorite details:", err);
       }
     };
 
-    void loadFavorites();
-  }, []);
-
-  // Load current status
-  useEffect(() => {
-    const loadStatus = async () => {
-      setIsLoadingStatus(true);
-      try {
-        const status = await getStatus();
-        setCurrentStatus(status);
-      } catch (err) {
-        console.error("Failed to load status:", err);
-      } finally {
-        setIsLoadingStatus(false);
-      }
-    };
-
-    void loadStatus();
-  }, []);
+    void loadFavoriteDetails();
+  }, [favorites]);
 
   const handleNavigateToNearbyGroups = () => {
     // TODO: Use proper routing when router is set up
@@ -150,31 +147,8 @@ export function Home() {
       } else {
         await removeFavorite(group.id);
       }
-      // Reload favorites
-      const favorites = await getFavorites();
-      const location = await getCurrentLocation();
-      const favoritesWithDetails = await Promise.all(
-        favorites.map(async (favorite) => {
-          const groupData = await getGroup(favorite.group_id);
-          if (!groupData) return null;
-          let distance: number | undefined;
-          if (location) {
-            distance = calculateDistance(
-              location.latitude,
-              location.longitude,
-              groupData.latitude,
-              groupData.longitude
-            );
-          }
-          const unreadCount = await getUnreadCount(groupData.id);
-          return { favorite, group: groupData, distance, unreadCount };
-        })
-      );
-      setFavoriteGroups(
-        favoritesWithDetails.filter(
-          (f): f is FavoriteGroupWithDetails => f !== null
-        )
-      );
+      // TanStack Query will automatically refetch favorites due to cache invalidation
+      // The useEffect will update favoriteGroups when favorites data changes
     } catch (err) {
       console.error("Failed to toggle favorite:", err);
     }
@@ -255,8 +229,9 @@ export function Home() {
                     </div>
                   )}
                   <StatusSelector
-                    onStatusUpdated={(status) => {
-                      setCurrentStatus(status);
+                    onStatusUpdated={() => {
+                      // Status is automatically updated via TanStack Query
+                      // No need to manually update state
                     }}
                   />
                 </>

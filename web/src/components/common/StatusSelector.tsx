@@ -4,9 +4,11 @@
  */
 
 import { useState, useEffect } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, AlertCircle, XCircle, Loader2 } from "lucide-react";
 import type { StatusType, UserStatus } from "../../domain/user_status";
-import { updateStatus, getStatus } from "../../services/status-service";
+import { updateStatusMutation, fetchStatus, getStatus } from "../../services/status-service";
+import { getOrCreateDeviceId } from "../../services/device-storage";
 import { Button } from "../ui/button";
 import {
   Card,
@@ -65,61 +67,83 @@ export function StatusSelector({
   onStatusUpdated,
   className = "",
 }: StatusSelectorProps) {
-  const [currentStatus, setCurrentStatus] = useState<UserStatus | null>(null);
+  const queryClient = useQueryClient();
+  const deviceId = getOrCreateDeviceId();
   const [selectedType, setSelectedType] = useState<StatusType | null>(null);
   const [description, setDescription] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const [isLoadingCurrent, setIsLoadingCurrent] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
-  // Load current status on mount
+  // Load current status using TanStack Query
+  const { data: currentStatus, isLoading: isLoadingCurrent } = useQuery({
+    queryKey: ['status'],
+    queryFn: fetchStatus,
+    staleTime: 5 * 60 * 1000,
+    retry: 3,
+  });
+
+  // Initialize form when status loads
   useEffect(() => {
-    const loadStatus = async () => {
-      setIsLoadingCurrent(true);
-      try {
-        const status = await getStatus();
-        if (status) {
-          setCurrentStatus(status);
-          setSelectedType(status.status_type);
-          setDescription(status.description || "");
-        }
-      } catch (err) {
-        console.error("Failed to load status:", err);
-      } finally {
-        setIsLoadingCurrent(false);
-      }
-    };
+    if (currentStatus) {
+      setSelectedType(currentStatus.status_type);
+      setDescription(currentStatus.description || "");
+    }
+  }, [currentStatus]);
 
-    void loadStatus();
-  }, []);
+  // Mutation for updating status with optimistic updates
+  const updateMutation = useMutation({
+    mutationFn: updateStatusMutation,
+    // Optimistic update: immediately update UI before server responds
+    onMutate: async (variables) => {
+      // Cancel outgoing queries to prevent overwriting optimistic update
+      await queryClient.cancelQueries({ queryKey: ['status'] });
+
+      // Snapshot previous value for rollback
+      const previousStatus = queryClient.getQueryData<UserStatus | null>(['status']);
+
+      // Optimistically update cache
+      const optimisticStatus: UserStatus = {
+        id: previousStatus?.id || '',
+        device_id: deviceId,
+        status_type: variables.statusType,
+        description: variables.description || null,
+        created_at: previousStatus?.created_at || new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      queryClient.setQueryData(['status'], optimisticStatus);
+
+      return { previousStatus };
+    },
+    // On success, update with server response and invalidate related queries
+    onSuccess: (data) => {
+      queryClient.setQueryData(['status'], data);
+      queryClient.invalidateQueries({ queryKey: ['status'] });
+      onStatusUpdated?.(data);
+    },
+    // On error, rollback to previous value
+    onError: (err, _variables, context) => {
+      if (context?.previousStatus !== undefined) {
+        queryClient.setQueryData(['status'], context.previousStatus);
+      }
+      console.error('Failed to update status:', err);
+    },
+  });
 
   const handleStatusSelect = (type: StatusType) => {
     setSelectedType(type);
-    setError(null);
   };
 
   const handleUpdate = async () => {
     if (!selectedType) {
-      setError("Please select a status");
       return;
     }
 
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const updated = await updateStatus(
-        selectedType,
-        description.trim() || undefined
-      );
-      setCurrentStatus(updated);
-      onStatusUpdated?.(updated);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update status");
-    } finally {
-      setIsLoading(false);
-    }
+    updateMutation.mutate({
+      statusType: selectedType,
+      description: description.trim() || undefined,
+    });
   };
+
+  const isLoading = updateMutation.isPending;
+  const error = updateMutation.error instanceof Error ? updateMutation.error.message : null;
 
   if (isLoadingCurrent) {
     return (

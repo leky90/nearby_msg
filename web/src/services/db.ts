@@ -3,7 +3,7 @@
  * Provides offline-first data storage using IndexedDB
  */
 
-import { createRxDatabase, addRxPlugin, type RxDatabase, type RxCollection } from 'rxdb';
+import { createRxDatabase, type RxDatabase, type RxCollection } from 'rxdb';
 import { getRxStorageDexie } from 'rxdb/plugins/storage-dexie';
 import type { Subscription } from 'rxjs';
 import type { Device } from '../domain/device';
@@ -127,60 +127,82 @@ export type NearbyMsgDatabase = RxDatabase<{
 }>;
 
 let dbInstance: NearbyMsgDatabase | null = null;
+let initPromise: Promise<NearbyMsgDatabase> | null = null;
 
 /**
  * Initializes the RxDB database
+ * Uses promise-based singleton pattern to prevent race conditions
+ * when multiple components call initDatabase() simultaneously
  * @returns Promise resolving to the database instance
  */
 export async function initDatabase(): Promise<NearbyMsgDatabase> {
+  // Return existing instance if already initialized
   if (dbInstance) {
     return dbInstance;
   }
 
-  // Enable dev-mode plugin in development to allow ignoreDuplicate option
-  // This is required because ignoreDuplicate: true requires dev-mode plugin to be enabled
-  // Dev-mode plugin should only be used in development, not in production builds
-  // Using dynamic import ensures the plugin is tree-shaken in production builds
-  if (import.meta.env.DEV) {
-    try {
-      const { RxDBDevModePlugin } = await import('rxdb/plugins/dev-mode');
-      addRxPlugin(RxDBDevModePlugin);
-    } catch (err) {
-      console.warn('Failed to load RxDB dev-mode plugin:', err);
-      // Continue without dev-mode - will fail if ignoreDuplicate is used
-    }
+  // If initialization is in progress, return the existing promise
+  // This prevents multiple simultaneous initialization attempts
+  if (initPromise) {
+    return initPromise;
   }
 
-  const database = await createRxDatabase({
-    name: 'nearby_msg',
-    storage: getRxStorageDexie(),
-    ignoreDuplicate: true, // Now allowed because dev-mode is enabled in development
-  });
+  // Start initialization and store the promise
+  initPromise = (async () => {
+    try {
+      // Note: We're not using dev-mode plugin because it requires validators
+      // which adds complexity. The promise-based singleton pattern ensures
+      // only one initialization occurs, preventing duplicate database errors.
 
-  // Create collections
-  await database.addCollections({
-    devices: {
-      schema: deviceSchema,
-    },
-    groups: {
-      schema: groupSchema,
-    },
-    messages: {
-      schema: messageSchema,
-    },
-    favorite_groups: {
-      schema: favoriteGroupSchema,
-    },
-    pinned_messages: {
-      schema: pinnedMessageSchema,
-    },
-    user_status: {
-      schema: userStatusSchema,
-    },
-  });
+      const database = await createRxDatabase({
+        name: 'nearby_msg',
+        storage: getRxStorageDexie(),
+        // Don't use ignoreDuplicate - handle initialization via singleton pattern instead
+      });
 
-  dbInstance = database;
-  return database;
+      // Create collections
+      await database.addCollections({
+        devices: {
+          schema: deviceSchema,
+        },
+        groups: {
+          schema: groupSchema,
+        },
+        messages: {
+          schema: messageSchema,
+        },
+        favorite_groups: {
+          schema: favoriteGroupSchema,
+        },
+        pinned_messages: {
+          schema: pinnedMessageSchema,
+        },
+        user_status: {
+          schema: userStatusSchema,
+        },
+      });
+
+      // Store instance and clear promise
+      // Type assertion needed because TypeScript can't infer the exact collection types
+      // The database has the correct collections, but TypeScript sees them as generic
+      dbInstance = database as unknown as NearbyMsgDatabase;
+      initPromise = null;
+      return database as unknown as NearbyMsgDatabase;
+    } catch (err) {
+      // If database already exists or other error, clear promise and rethrow
+      initPromise = null;
+      // If it's a duplicate database error, try to get existing instance
+      if (err && typeof err === 'object' && 'message' in err && 
+          String(err.message).includes('already exists')) {
+        // Database might already exist from previous session
+        // Try to initialize again (will get existing instance)
+        return initDatabase();
+      }
+      throw err;
+    }
+  })();
+
+  return initPromise;
 }
 
 /**

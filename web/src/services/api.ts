@@ -99,6 +99,8 @@ async function request<T>(
     // Handle authentication errors
     if (response.status === 401) {
       clearToken();
+      // Don't log 401 errors to console - they're expected when device not registered
+      // The calling code should handle 401s gracefully (e.g., fallback to cached data)
     }
 
     throw error;

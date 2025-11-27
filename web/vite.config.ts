@@ -26,7 +26,12 @@ export default defineConfig({
             console.log('proxy error', err);
           });
           proxy.on('proxyReq', (proxyReq, req, _res) => {
+            // Log proxied requests for debugging
             console.log('Proxying request:', req.method, req.url);
+            // Ensure Authorization header is forwarded (Vite proxy does this by default, but explicit is better)
+            if (req.headers.authorization) {
+              proxyReq.setHeader('Authorization', req.headers.authorization);
+            }
           });
         },
       },

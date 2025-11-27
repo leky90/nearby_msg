@@ -48,14 +48,22 @@ export async function removeFavorite(groupId: string): Promise<void> {
 }
 
 /**
- * Gets all favorite groups for current device
- * Note: This endpoint doesn't exist yet, so we use cached favorites
+ * Query function for fetching favorites (for TanStack Query)
+ * Reads from RxDB first (since API endpoint doesn't exist yet)
+ * @returns Array of favorite groups
+ */
+export async function fetchFavorites(): Promise<FavoriteGroup[]> {
+  // For now, use cached favorites only
+  // TODO: Add GET /favorites endpoint when needed
+  return getCachedFavorites();
+}
+
+/**
+ * Gets all favorite groups for current device (legacy function for backward compatibility)
  * @returns Array of favorite groups
  */
 export async function getFavorites(): Promise<FavoriteGroup[]> {
-  // For now, use cached favorites
-  // TODO: Add GET /favorites endpoint when needed
-  return getCachedFavorites();
+  return fetchFavorites();
 }
 
 /**

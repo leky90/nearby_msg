@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
@@ -72,6 +74,17 @@ func main() {
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
+	}
+
+	// Check if port is available
+	if !isPortAvailable(port) {
+		log.Printf("Warning: Port %s is already in use", port)
+		// Try to find PID using the port
+		if pid := findProcessUsingPort(port); pid != "" {
+			log.Printf("Port %s is being used by process %s", port, pid)
+			log.Printf("To free the port, run: kill -9 %s", pid)
+		}
+		log.Fatalf("Cannot start server: port %s is already in use. Please free the port or set PORT environment variable to a different port.", port)
 	}
 
 	// Create HTTP server with error handling middleware
@@ -198,4 +211,28 @@ func runMigrations(ctx context.Context, pool *database.Pool) error {
 	}
 
 	return nil
+}
+
+// isPortAvailable checks if a port is available for binding
+func isPortAvailable(port string) bool {
+	ln, err := net.Listen("tcp", ":"+port)
+	if err != nil {
+		return false
+	}
+	ln.Close()
+	return true
+}
+
+// findProcessUsingPort attempts to find the PID of the process using the port
+func findProcessUsingPort(port string) string {
+	cmd := exec.Command("lsof", "-ti", ":"+port)
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	pid := strings.TrimSpace(string(output))
+	if pid != "" {
+		return pid
+	}
+	return ""
 }

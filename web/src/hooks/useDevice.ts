@@ -1,13 +1,16 @@
 /**
  * Device registration hook
- * Handles device registration and token management
+ * Handles device registration and token management using TanStack Query
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { Device, DeviceCreateRequest, DeviceUpdateRequest } from '../domain/device';
-import { getOrCreateDeviceId, setDeviceId } from '../services/device-storage';
-import { post, patch, setToken } from '../services/api';
-import { getDatabase } from '../services/db';
+import { getOrCreateDeviceId } from '../services/device-storage';
+import {
+  fetchDevice,
+  registerDeviceMutation,
+  updateDeviceNickname,
+} from '../services/device-service';
 
 export interface UseDeviceReturn {
   device: Device | null;
@@ -20,163 +23,144 @@ export interface UseDeviceReturn {
 
 /**
  * Hook for device registration and management
+ * Uses TanStack Query for automatic request deduplication, caching, and retry
  * @returns Device state and registration functions
  */
 export function useDevice(): UseDeviceReturn {
-  const [device, setDevice] = useState<Device | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const deviceId = getOrCreateDeviceId();
 
-  /**
-   * Registers a device with the server
-   */
-  const registerDevice = useCallback(async (request?: DeviceCreateRequest) => {
-    try {
-      setLoading(true);
-      setError(null);
+  // Query for device data (reads from RxDB first, then API)
+  const {
+    data: device,
+    isLoading,
+    error: queryError,
+    refetch: refreshDevice,
+  } = useQuery({
+    queryKey: ['device', deviceId],
+    queryFn: fetchDevice,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    retry: 3,
+    // Only fetch if device doesn't exist in cache
+    enabled: !!deviceId,
+  });
 
-      // Get or create device ID
-      const deviceId = getOrCreateDeviceId();
-      setDeviceId(deviceId);
+  // Mutation for device registration with optimistic updates
+  const registerMutation = useMutation({
+    mutationFn: registerDeviceMutation,
+    // Optimistic update: immediately update UI before server responds
+    onMutate: async (variables) => {
+      // Cancel outgoing queries
+      await queryClient.cancelQueries({ queryKey: ['device', deviceId] });
 
-      // Register with server
-      const response = await post<{ device: Device; token: string }>('/device/register', {
-        id: deviceId,
-        ...request,
-      });
+      // Snapshot previous value
+      const previousDevice = queryClient.getQueryData<Device | null>(['device', deviceId]);
 
-      // Store token
-      if (response.token) {
-        setToken(response.token);
+      // Optimistically update cache (if we have device ID from variables)
+      if (variables?.id || deviceId) {
+        const optimisticDevice: Device = {
+          id: variables?.id || deviceId,
+          nickname: variables?.nickname || 'New Device',
+          public_key: '',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+        queryClient.setQueryData(['device', deviceId], optimisticDevice);
       }
 
-      // Store device in RxDB
-      const db = await getDatabase();
-      await db.devices.upsert(response.device);
+      return { previousDevice };
+    },
+    onSuccess: (data) => {
+      // Update with server response and invalidate related queries
+      queryClient.setQueryData(['device', data.device.id], data.device);
+      queryClient.invalidateQueries({ queryKey: ['device'] });
+    },
+    onError: (err, _variables, context) => {
+      // Rollback on error
+      if (context?.previousDevice !== undefined) {
+        queryClient.setQueryData(['device', deviceId], context.previousDevice);
+      }
+      console.error('Failed to register device:', err);
+    },
+  });
 
-      setDevice(response.device);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to register device';
-      setError(errorMessage);
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  // Mutation for device update with optimistic updates
+  const updateMutation = useMutation({
+    mutationFn: async (request: DeviceUpdateRequest) => {
+      if (!device) {
+        throw new Error('Device not registered');
+      }
+      return updateDeviceNickname(request.nickname);
+    },
+    // Optimistic update
+    onMutate: async (request) => {
+      if (!device) return { previousDevice: null };
 
-  /**
-   * Updates device nickname
-   */
-  const updateDevice = useCallback(async (request: DeviceUpdateRequest) => {
-    if (!device) {
-      throw new Error('Device not registered');
-    }
+      // Cancel outgoing queries
+      await queryClient.cancelQueries({ queryKey: ['device', device.id] });
 
-    try {
-      setLoading(true);
-      setError(null);
+      // Snapshot previous value
+      const previousDevice = queryClient.getQueryData<Device | null>(['device', device.id]);
 
-      await patch(`/device/${device.id}`, request);
-
-      // Update local device
-      const updatedDevice: Device = {
+      // Optimistically update cache
+      const optimisticDevice: Device = {
         ...device,
         nickname: request.nickname,
         updated_at: new Date().toISOString(),
       };
+      queryClient.setQueryData(['device', device.id], optimisticDevice);
 
-      // Update in RxDB
-      const db = await getDatabase();
-      await db.devices.upsert(updatedDevice);
-
-      setDevice(updatedDevice);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to update device';
-      setError(errorMessage);
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  }, [device]);
-
-  /**
-   * Refreshes device data from server
-   */
-  const refreshDevice = useCallback(async () => {
-    if (!device) {
-      return;
-    }
-
-    try {
-      setLoading(true);
-      setError(null);
-
-      const response = await fetch(`/device?id=${device.id}`);
-      if (!response.ok) {
-        throw new Error('Failed to fetch device');
+      return { previousDevice };
+    },
+    onSuccess: (updatedDevice) => {
+      // Update with server response
+      queryClient.setQueryData(['device', updatedDevice.id], updatedDevice);
+      queryClient.invalidateQueries({ queryKey: ['device'] });
+    },
+    onError: (err, _request, context) => {
+      // Rollback on error
+      if (context?.previousDevice !== undefined && device) {
+        queryClient.setQueryData(['device', device.id], context.previousDevice);
       }
+      console.error('Failed to update device:', err);
+    },
+  });
 
-      const updatedDevice: Device = await response.json();
+  // Register device (triggers mutation)
+  const registerDevice = async (request?: DeviceCreateRequest) => {
+    await registerMutation.mutateAsync(request);
+  };
 
-      // Update in RxDB
-      const db = await getDatabase();
-      await db.devices.upsert(updatedDevice);
+  // Update device (triggers mutation)
+  const updateDevice = async (request: DeviceUpdateRequest) => {
+    await updateMutation.mutateAsync(request);
+  };
 
-      setDevice(updatedDevice);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to refresh device';
-      setError(errorMessage);
-    } finally {
-      setLoading(false);
-    }
-  }, [device]);
+  // Refresh device (refetches query)
+  const handleRefreshDevice = async () => {
+    await refreshDevice();
+  };
 
-  /**
-   * Load device from RxDB on mount
-   */
-  useEffect(() => {
-    let mounted = true;
+  // Determine loading state
+  const loading = isLoading || registerMutation.isPending || updateMutation.isPending;
 
-    async function loadDevice() {
-      try {
-        const deviceId = getOrCreateDeviceId();
-        const db = await getDatabase();
-
-        // Try to load from RxDB
-        const existingDevice = await db.devices.findOne(deviceId).exec();
-        if (existingDevice && mounted) {
-          setDevice(existingDevice.toJSON() as Device);
-          setLoading(false);
-          return;
-        }
-
-        // If not found, register new device
-        if (mounted) {
-          await registerDevice();
-        }
-      } catch (err) {
-        if (mounted) {
-          const errorMessage = err instanceof Error ? err.message : 'Failed to load device';
-          setError(errorMessage);
-          setLoading(false);
-        }
-      }
-    }
-
-    loadDevice();
-
-    return () => {
-      mounted = false;
-    };
-  }, [registerDevice]);
+  // Determine error state
+  const error =
+    queryError instanceof Error
+      ? queryError.message
+      : registerMutation.error instanceof Error
+        ? registerMutation.error.message
+        : updateMutation.error instanceof Error
+          ? updateMutation.error.message
+          : null;
 
   return {
-    device,
+    device: device || null,
     loading,
     error,
     registerDevice,
     updateDevice,
-    refreshDevice,
+    refreshDevice: handleRefreshDevice,
   };
 }
 

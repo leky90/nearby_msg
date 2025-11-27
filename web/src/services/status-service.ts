@@ -19,18 +19,17 @@ export interface StatusSummary {
 }
 
 /**
- * Updates user's safety status
- * @param statusType - Status type (safe, need_help, cannot_contact)
- * @param description - Optional description
+ * Mutation function for updating status (for TanStack Query)
+ * @param variables - Status update variables
  * @returns Updated status
  */
-export async function updateStatus(
-  statusType: StatusType,
-  description?: string
-): Promise<UserStatus> {
+export async function updateStatusMutation(variables: {
+  statusType: StatusType;
+  description?: string;
+}): Promise<UserStatus> {
   const response = await put<UserStatus>('/status', {
-    status_type: statusType,
-    description: description || null,
+    status_type: variables.statusType,
+    description: variables.description || null,
   });
 
   // Store in RxDB
@@ -41,18 +40,51 @@ export async function updateStatus(
 }
 
 /**
- * Gets current user's status
+ * Updates user's safety status (legacy function for backward compatibility)
+ * @param statusType - Status type (safe, need_help, cannot_contact)
+ * @param description - Optional description
+ * @returns Updated status
+ */
+export async function updateStatus(
+  statusType: StatusType,
+  description?: string
+): Promise<UserStatus> {
+  return updateStatusMutation({ statusType, description });
+}
+
+/**
+ * Query function for fetching status (for TanStack Query)
+ * Reads from RxDB first, then falls back to API if not found
  * @returns User status or null if not set
  */
-export async function getStatus(): Promise<UserStatus | null> {
+export async function fetchStatus(): Promise<UserStatus | null> {
+  const deviceId = getOrCreateDeviceId();
+
+  // Try RxDB first (instant, offline support)
+  try {
+    const db = await getDatabase();
+    const cached = await db.user_status
+      .findOne({ selector: { device_id: deviceId } })
+      .exec();
+    if (cached) {
+      return cached.toJSON() as UserStatus;
+    }
+  } catch {
+    // RxDB not available, continue to API
+  }
+
+  // Fallback to API if not in cache
   try {
     const response = await get<UserStatus>('/status');
-    // Store in RxDB
-    const db = await getDatabase();
-    await db.user_status.upsert(response);
+    // Store in RxDB for next time
+    if (response) {
+      const db = await getDatabase();
+      await db.user_status.upsert(response);
+    }
     return response;
   } catch (err) {
-    // If 404 (not found) or 401 (unauthorized - device not registered yet), try to get from cache
+    // If 404 (not found) or 401 (unauthorized - device not registered yet), return cached
+    // 401 is expected when device hasn't been registered - don't treat as error
     if (
       err &&
       typeof err === 'object' &&
@@ -60,10 +92,20 @@ export async function getStatus(): Promise<UserStatus | null> {
       ((err as { status: number }).status === 404 ||
         (err as { status: number }).status === 401)
     ) {
+      // Silently fallback to cached data - this is expected behavior
       return getCachedStatus();
     }
+    // Only throw for unexpected errors
     throw err;
   }
+}
+
+/**
+ * Gets current user's status (legacy function for backward compatibility)
+ * @returns User status or null if not set
+ */
+export async function getStatus(): Promise<UserStatus | null> {
+  return fetchStatus();
 }
 
 /**

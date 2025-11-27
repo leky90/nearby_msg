@@ -61,9 +61,13 @@ export const buttonVariants = tv({
 });
 
 export function Button(props: ButtonProps) {
+  // Extract isDisabled to prevent it from being passed to DOM
+  const { isDisabled, ...restProps } = props;
+
   return (
     <AriaButton
-      {...props}
+      {...restProps}
+      isDisabled={isDisabled}
       className={composeRenderProps(props.className, (className, renderProps) =>
         buttonVariants({
           ...renderProps,

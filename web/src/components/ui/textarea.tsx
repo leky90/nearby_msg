@@ -1,9 +1,13 @@
-import * as React from "react"
-import { TextArea as RACTextarea } from "react-aria-components"
+import * as React from "react";
+import { TextArea as RACTextarea } from "react-aria-components";
 
-import { cn } from "@/lib/utils"
+import { cn } from "@/lib/utils";
 
-function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
+function Textarea({
+  className,
+  isDisabled,
+  ...props
+}: React.ComponentProps<"textarea"> & { isDisabled?: boolean }) {
   return (
     <RACTextarea
       data-slot="textarea"
@@ -12,9 +16,10 @@ function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
         "focus:border-ring focus:ring-ring/50 focus:ring-[3px]",
         className
       )}
+      disabled={isDisabled}
       {...props}
     />
-  )
+  );
 }
 
-export { Textarea }
+export { Textarea };
