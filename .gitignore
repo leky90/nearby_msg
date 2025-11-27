@@ -73,4 +73,6 @@ build-errors.log
 !/web/
 !/api/
 !/.gitignore
-!/.specify/
+
+# Ignore .specify/ folder
+.specify/
