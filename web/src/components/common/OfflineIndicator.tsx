@@ -7,6 +7,7 @@ import { useState, useEffect } from 'react';
 import { WifiOff } from 'lucide-react';
 import { Alert, AlertDescription } from '../ui/alert';
 import { cn } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 
 export interface OfflineIndicatorProps {
   /** Custom className */
@@ -38,10 +39,10 @@ export function OfflineIndicator({ className = '' }: OfflineIndicatorProps) {
   }
 
   return (
-    <Alert variant="default" className={cn('border-yellow-500/50 bg-yellow-50 dark:bg-yellow-950/20', className)}>
+    <Alert variant="default" className={cn('border-muted-semantic bg-muted-semantic/10 text-muted-foreground', className)}>
       <WifiOff className="size-4" />
-      <AlertDescription>
-        Offline Mode - Using cached data
+      <AlertDescription className="text-body leading-body">
+        {t("network.offline") || "Chế độ ngoại tuyến - Đang sử dụng dữ liệu đã lưu"}
       </AlertDescription>
     </Alert>
   );

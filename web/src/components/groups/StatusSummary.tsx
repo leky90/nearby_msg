@@ -8,6 +8,7 @@ import type { StatusSummary as StatusSummaryType } from "../../services/status-s
 import { Card, CardHeader, CardTitle, CardContent } from "../ui/card";
 import { Badge } from "../ui/badge";
 import { cn } from "@/lib/utils";
+import { t } from "@/lib/i18n";
 
 export interface StatusSummaryProps {
   /** Status summary data */
@@ -27,8 +28,8 @@ export function StatusSummary({ summary, className = "" }: StatusSummaryProps) {
   if (total_count === 0) {
     return (
       <Card className={cn("border-dashed", className)}>
-        <CardContent className="p-4 text-center text-sm text-muted-foreground">
-          No status information available
+        <CardContent className="p-4 text-center text-body leading-body text-muted-foreground">
+          {t("component.statusSummary.noStatus") || "Chưa có thông tin trạng thái"}
         </CardContent>
       </Card>
     );
@@ -37,43 +38,43 @@ export function StatusSummary({ summary, className = "" }: StatusSummaryProps) {
   return (
     <Card className={className}>
       <CardHeader className="pb-3">
-        <CardTitle className="text-base">Group Safety Status</CardTitle>
+        <CardTitle className="text-heading-2 leading-heading-2">{t("component.statusSummary.title") || "Trạng thái An toàn Nhóm"}</CardTitle>
       </CardHeader>
       <CardContent>
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <CheckCircle2 className="size-4 text-green-600" />
-              <span className="text-sm">Safe</span>
+              <CheckCircle2 className="size-4 text-safety" />
+              <span className="text-body leading-body">{t("status.safe")}</span>
             </div>
-            <Badge variant="secondary" className="bg-green-50 text-green-700">
+            <Badge variant="safe" className="bg-safety/10 text-safety border-safety/20">
               {safe_count}
             </Badge>
           </div>
 
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <AlertCircle className="size-4 text-yellow-600" />
-              <span className="text-sm">Need Help</span>
+              <AlertCircle className="size-4 text-warning" />
+              <span className="text-body leading-body">{t("status.needHelp")}</span>
             </div>
-            <Badge variant="secondary" className="bg-yellow-50 text-yellow-700">
+            <Badge variant="outline" className="bg-warning/10 text-warning border-warning/20">
               {need_help_count}
             </Badge>
           </div>
 
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <XCircle className="size-4 text-red-600" />
-              <span className="text-sm">Cannot Contact</span>
+              <XCircle className="size-4 text-sos" />
+              <span className="text-body leading-body">{t("status.cannotContact")}</span>
             </div>
-            <Badge variant="secondary" className="bg-red-50 text-red-700">
+            <Badge variant="sos" className="bg-sos/10 text-sos border-sos/20">
               {cannot_contact_count}
             </Badge>
           </div>
 
           <div className="mt-3 border-t pt-3">
             <div className="flex items-center justify-between">
-              <span className="text-sm font-medium">Total</span>
+              <span className="text-body leading-body font-medium">{t("component.statusSummary.total", { count: total_count })}</span>
               <Badge variant="outline">{total_count}</Badge>
             </div>
           </div>

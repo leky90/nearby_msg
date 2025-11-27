@@ -11,6 +11,7 @@ import { Dialog, DialogHeader, DialogTitle } from "../ui/dialog";
 import { RadioGroup, RadioGroupItem } from "../ui/radio-group";
 import { Button } from "../ui/button";
 import { Label } from "../ui/label";
+import { t } from "@/lib/i18n";
 
 export interface SOSSelectorProps {
   /** Callback when SOS type is selected */
@@ -19,35 +20,35 @@ export interface SOSSelectorProps {
   onClose: () => void;
 }
 
-const SOS_TYPES: Array<{
+const getSOSTypes = (): Array<{
   type: SOSType;
   label: string;
   icon: React.ReactNode;
   description: string;
-}> = [
+}> => [
   {
     type: "medical",
-    label: "Medical Emergency",
+    label: t("sos.medical"),
     icon: <Heart className="size-5" />,
-    description: "Need immediate medical assistance",
+    description: t("sos.description.medical"),
   },
   {
     type: "flood",
-    label: "Flood Emergency",
+    label: t("sos.flood"),
     icon: <Waves className="size-5" />,
-    description: "Need evacuation assistance",
+    description: t("sos.description.flood"),
   },
   {
     type: "fire",
-    label: "Fire Emergency",
+    label: t("sos.fire"),
     icon: <Flame className="size-5" />,
-    description: "Need immediate fire assistance",
+    description: t("sos.description.fire"),
   },
   {
     type: "missing_person",
-    label: "Missing Person",
+    label: t("sos.missingPerson"),
     icon: <UserSearch className="size-5" />,
-    description: "Need help locating someone",
+    description: t("sos.description.missingPerson"),
   },
 ];
 
@@ -57,6 +58,7 @@ const SOS_TYPES: Array<{
  */
 export function SOSSelector({ onSelect, onClose }: SOSSelectorProps) {
   const [selectedType, setSelectedType] = useState<SOSType | "">("");
+  const SOS_TYPES = getSOSTypes();
 
   const handleSelect = (value: string) => {
     setSelectedType(value as SOSType);
@@ -69,16 +71,18 @@ export function SOSSelector({ onSelect, onClose }: SOSSelectorProps) {
   };
 
   return (
-    <Modal isOpen isDismissable onDismiss={onClose}>
+    <Modal isOpen isDismissable onOpenChange={(isOpen) => !isOpen && onClose()}>
       <Dialog className="w-full max-w-md">
         <DialogHeader>
           <div className="flex items-center justify-between">
-            <DialogTitle>Select Emergency Type</DialogTitle>
+            <DialogTitle className="text-heading-2 leading-heading-2">
+              {t("component.sosSelector.title")}
+            </DialogTitle>
             <Button
               variant="ghost"
               size="icon"
               onClick={onClose}
-              aria-label="Close"
+              aria-label={t("common.close")}
             >
               <X className="size-4" />
             </Button>
@@ -101,9 +105,11 @@ export function SOSSelector({ onSelect, onClose }: SOSSelectorProps) {
                   >
                     <div className="flex items-center gap-2">
                       <span className="text-muted-foreground">{sos.icon}</span>
-                      <span className="font-medium">{sos.label}</span>
+                      <span className="font-medium text-body leading-body">
+                        {sos.label}
+                      </span>
                     </div>
-                    <p className="text-sm text-muted-foreground">
+                    <p className="text-body leading-body text-muted-foreground">
                       {sos.description}
                     </p>
                   </Label>
@@ -113,16 +119,17 @@ export function SOSSelector({ onSelect, onClose }: SOSSelectorProps) {
           </RadioGroup>
         </div>
 
-        <div className="flex justify-end gap-2 pt-4">
-          <Button variant="outline" onClick={onClose}>
-            Cancel
+        <div className="flex justify-end gap-3 pt-4">
+          <Button variant="outline" onClick={onClose} className="h-12">
+            {t("button.cancel")}
           </Button>
           <Button
             variant="destructive"
             onClick={handleConfirm}
             isDisabled={!selectedType}
+            className="h-12"
           >
-            Send SOS
+            {t("button.sendSOS")}
           </Button>
         </div>
       </Dialog>

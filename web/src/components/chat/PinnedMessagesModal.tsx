@@ -20,6 +20,7 @@ import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { MessageBubble } from "./MessageBubble";
 import { cn } from "@/lib/utils";
+import { t } from "@/lib/i18n";
 
 export interface PinnedMessagesModalProps {
   /** Group ID */
@@ -96,19 +97,19 @@ export function PinnedMessagesModal({
     <Dialog>
       <DialogContent className="max-w-2xl max-h-[80vh]">
         <DialogHeader>
-          <DialogTitle>Pinned Messages</DialogTitle>
+          <DialogTitle>{t("component.pinnedMessages.title")}</DialogTitle>
           <DialogDescription>
-            Important messages pinned by group members
+            {t("component.pinnedMessages.description") || "Tin nhắn quan trọng đã được ghim"}
           </DialogDescription>
         </DialogHeader>
         <ScrollArea className="max-h-[60vh]">
           {isLoading ? (
             <div className="p-4 text-center text-muted-foreground">
-              Loading pinned messages...
+              {t("common.loading")}
             </div>
           ) : pinnedMessages.length === 0 ? (
             <div className="p-4 text-center text-muted-foreground">
-              No pinned messages yet
+              {t("component.pinnedMessages.noPinnedMessages")}
             </div>
           ) : (
             <div className="space-y-4 p-4">
@@ -130,7 +131,7 @@ export function PinnedMessagesModal({
                     <div className="flex items-center justify-between">
                       {pin.tag && <Badge variant="secondary">{pin.tag}</Badge>}
                       <span className="text-xs text-muted-foreground">
-                        Pinned {new Date(pin.pinned_at).toLocaleDateString()}
+                        {t("common.pinned") || "Đã ghim"} {new Date(pin.pinned_at).toLocaleDateString()}
                       </span>
                     </div>
                     <div
@@ -149,7 +150,7 @@ export function PinnedMessagesModal({
                         className="w-full"
                         onClick={() => handleMessageClick(pin.message_id)}
                       >
-                        Go to message
+                        {t("common.goToMessage") || "Đi tới tin nhắn"}
                       </Button>
                     )}
                   </div>

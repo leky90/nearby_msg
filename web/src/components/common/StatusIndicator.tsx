@@ -7,6 +7,7 @@ import { CheckCircle2, AlertCircle, XCircle } from "lucide-react";
 import type { StatusType } from "../../domain/user_status";
 import { Badge } from "../ui/badge";
 import { cn } from "@/lib/utils";
+import { t } from "@/lib/i18n";
 
 export interface StatusIndicatorProps {
   /** Status type to display */
@@ -21,29 +22,32 @@ export interface StatusIndicatorProps {
   className?: string;
 }
 
-const STATUS_CONFIG: Record<
+const getStatusConfig = (): Record<
   StatusType,
-  { label: string; icon: React.ReactNode; color: string; bgColor: string }
-> = {
+  { label: string; icon: React.ReactNode; color: string; bgColor: string; textColor: string }
+> => ({
   safe: {
-    label: "Safe",
+    label: t("status.safe"),
     icon: <CheckCircle2 className="size-4" />,
-    color: "text-green-600",
-    bgColor: "bg-green-50 border-green-200",
+    color: "text-safety",
+    bgColor: "bg-safety/10 border-safety/20",
+    textColor: "text-safety",
   },
   need_help: {
-    label: "Need Help",
+    label: t("status.needHelp"),
     icon: <AlertCircle className="size-4" />,
-    color: "text-yellow-600",
-    bgColor: "bg-yellow-50 border-yellow-200",
+    color: "text-warning",
+    bgColor: "bg-warning/10 border-warning/20",
+    textColor: "text-warning",
   },
   cannot_contact: {
-    label: "Cannot Contact",
+    label: t("status.cannotContact"),
     icon: <XCircle className="size-4" />,
-    color: "text-red-600",
-    bgColor: "bg-red-50 border-red-200",
+    color: "text-sos",
+    bgColor: "bg-sos/10 border-sos/20",
+    textColor: "text-sos",
   },
-};
+});
 
 /**
  * Status Indicator component
@@ -56,6 +60,7 @@ export function StatusIndicator({
   showDescription = false,
   className = "",
 }: StatusIndicatorProps) {
+  const STATUS_CONFIG = getStatusConfig();
   const config = STATUS_CONFIG[statusType];
   const sizeClasses = {
     sm: "text-xs px-2 py-1",
@@ -70,11 +75,11 @@ export function StatusIndicator({
         className={cn(
           "flex items-center gap-1.5",
           config.bgColor,
-          config.color,
+          config.textColor,
           sizeClasses[size]
         )}
       >
-        <span className={config.color}>{config.icon}</span>
+        <span className={config.textColor}>{config.icon}</span>
         <span>{config.label}</span>
       </Badge>
       {showDescription && description && (

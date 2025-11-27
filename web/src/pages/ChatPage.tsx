@@ -13,6 +13,8 @@ import { useState, useEffect } from "react";
 import type { Group } from "../domain/group";
 import { Skeleton } from "../components/ui/skeleton";
 import { Card, CardHeader } from "../components/ui/card";
+import { t } from "../lib/i18n";
+import { NetworkBanner } from "../components/common/NetworkBanner";
 
 export interface ChatPageProps {
   /** Group ID */
@@ -67,7 +69,7 @@ export function ChatPage({ groupId }: ChatPageProps) {
   if (!groupId) {
     return (
       <div className="flex h-screen items-center justify-center">
-        <p className="text-muted-foreground">No group selected</p>
+        <p className="text-muted-foreground">{t("page.chat.noGroupSelected")}</p>
       </div>
     );
   }
@@ -76,7 +78,7 @@ export function ChatPage({ groupId }: ChatPageProps) {
     return (
       <div className="flex h-screen items-center justify-center">
         <p className="text-destructive">
-          Error loading messages: {error.message}
+          {t("page.chat.errorLoadingMessages")}: {error.message}
         </p>
       </div>
     );
@@ -110,6 +112,7 @@ export function ChatPage({ groupId }: ChatPageProps) {
 
   return (
     <div className="flex h-screen flex-col">
+      <NetworkBanner />
       <ChatHeader group={group} onSOSSent={handleSOSSent} />
       <div className="flex-1 overflow-hidden">
         <MessageList
@@ -118,7 +121,11 @@ export function ChatPage({ groupId }: ChatPageProps) {
           isLoading={isLoading}
         />
       </div>
-      <MessageInput onSend={handleSendMessage} disabled={isLoading} />
+      <MessageInput 
+        onSend={handleSendMessage} 
+        disabled={isLoading}
+        placeholder={t("page.chat.typeMessage")}
+      />
     </div>
   );
 }

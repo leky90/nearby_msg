@@ -8,6 +8,7 @@ import { Wifi, WifiOff, Gauge } from "lucide-react";
 import { Badge } from "../ui/badge";
 import { cn } from "@/lib/utils";
 import { getNetworkStatus, subscribeToNetworkStatus, type NetworkStatus } from "../../services/network-status";
+import { t } from "@/lib/i18n";
 
 export interface ConnectivityStatusProps {
   /** Custom className */
@@ -39,31 +40,31 @@ export function ConnectivityStatus({
   const getIcon = () => {
     switch (status) {
       case "offline":
-        return <WifiOff className={cn("text-destructive", size === "sm" ? "h-3 w-3" : size === "lg" ? "h-5 w-5" : "h-4 w-4")} />;
+        return <WifiOff className={cn("text-muted-semantic", size === "sm" ? "h-3 w-3" : size === "lg" ? "h-5 w-5" : "h-4 w-4")} />;
       case "slow":
-        return <Gauge className={cn("text-yellow-600", size === "sm" ? "h-3 w-3" : size === "lg" ? "h-5 w-5" : "h-4 w-4")} />;
+        return <Gauge className={cn("text-warning", size === "sm" ? "h-3 w-3" : size === "lg" ? "h-5 w-5" : "h-4 w-4")} />;
       default:
-        return <Wifi className={cn("text-green-600", size === "sm" ? "h-3 w-3" : size === "lg" ? "h-5 w-5" : "h-4 w-4")} />;
+        return <Wifi className={cn("text-safety", size === "sm" ? "h-3 w-3" : size === "lg" ? "h-5 w-5" : "h-4 w-4")} />;
     }
   };
 
   const getLabel = () => {
     switch (status) {
       case "offline":
-        return "Offline";
+        return t("component.connectivityStatus.offline");
       case "slow":
-        return "Slow connection";
+        return t("component.connectivityStatus.syncing");
       default:
-        return "Online";
+        return t("component.connectivityStatus.online");
     }
   };
 
-  const getVariant = (): "default" | "secondary" | "destructive" | "outline" => {
+  const getVariant = (): "default" | "secondary" | "destructive" | "outline" | "safe" | "warning" => {
     switch (status) {
       case "offline":
-        return "destructive";
+        return "outline";
       case "slow":
-        return "secondary";
+        return "outline";
       default:
         return "default";
     }

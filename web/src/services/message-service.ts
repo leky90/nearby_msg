@@ -8,6 +8,7 @@ import { validateMessageCreateRequest } from '../domain/message';
 import { generateId } from '../utils/id';
 import { getDatabase } from './db';
 import { getOrCreateDeviceId } from './device-storage';
+import { t } from '@/lib/i18n';
 
 // SOS cooldown duration (30 seconds)
 const SOS_COOLDOWN_DURATION = 30 * 1000; // milliseconds
@@ -123,12 +124,12 @@ export async function createSOSMessage(
  */
 function getSOSDefaultContent(sosType: SOSType): string {
   const contentMap: Record<SOSType, string> = {
-    medical: '🚨 Medical Emergency - Need immediate help!',
-    flood: '🚨 Flood Emergency - Need evacuation assistance!',
-    fire: '🚨 Fire Emergency - Need immediate help!',
-    missing_person: '🚨 Missing Person - Need help locating!',
+    medical: t("message.sosDefault.medical"),
+    flood: t("message.sosDefault.flood"),
+    fire: t("message.sosDefault.fire"),
+    missing_person: t("message.sosDefault.missing_person"),
   };
-  return contentMap[sosType] || '🚨 Emergency - Need help!';
+  return contentMap[sosType] || t("message.sosDefault.default");
 }
 
 /**

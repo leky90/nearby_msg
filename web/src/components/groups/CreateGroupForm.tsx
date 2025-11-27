@@ -23,6 +23,7 @@ import {
 } from "../ui/select";
 import { Alert, AlertDescription } from "../ui/alert";
 import { cn } from "@/lib/utils";
+import { t } from "@/lib/i18n";
 
 export interface CreateGroupFormProps {
   /** Callback when group is created */
@@ -33,12 +34,12 @@ export interface CreateGroupFormProps {
   className?: string;
 }
 
-const GROUP_TYPES: Array<{ value: Group["type"]; label: string }> = [
-  { value: "neighborhood", label: "Neighborhood" },
-  { value: "ward", label: "Ward" },
-  { value: "district", label: "District" },
-  { value: "apartment", label: "Apartment" },
-  { value: "other", label: "Other" },
+const getGroupTypes = (): Array<{ value: Group["type"]; label: string }> => [
+  { value: "neighborhood", label: t("group.type.neighborhood") },
+  { value: "ward", label: t("group.type.ward") },
+  { value: "district", label: t("group.type.district") },
+  { value: "apartment", label: t("group.type.apartment") },
+  { value: "other", label: t("group.type.other") },
 ];
 
 /**
@@ -52,6 +53,7 @@ export function CreateGroupForm({
 }: CreateGroupFormProps) {
   const [name, setName] = useState("");
   const [type, setType] = useState<Group["type"]>("neighborhood");
+  const GROUP_TYPES = getGroupTypes();
   const [latitude, setLatitude] = useState<number | null>(null);
   const [longitude, setLongitude] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -110,13 +112,13 @@ export function CreateGroupForm({
     const errors: typeof fieldErrors = {};
 
     if (isNaN(lat) || lat < -90 || lat > 90) {
-      errors.latitude = "Latitude must be between -90 and 90";
+      errors.latitude = t("component.createGroupForm.latitudeInvalid");
     } else {
       delete errors.latitude;
     }
 
     if (isNaN(lon) || lon < -180 || lon > 180) {
-      errors.longitude = "Longitude must be between -180 and 180";
+      errors.longitude = t("component.createGroupForm.longitudeInvalid");
     } else {
       delete errors.longitude;
     }
@@ -145,17 +147,17 @@ export function CreateGroupForm({
     // Validate name
     const trimmedName = name.trim();
     if (!trimmedName) {
-      errors.name = "Group name is required";
+      errors.name = t("component.createGroupForm.groupNameRequired");
     } else if (trimmedName.length > 100) {
-      errors.name = "Group name must be 100 characters or less";
+      errors.name = t("component.createGroupForm.groupNameTooLong");
     } else {
       delete errors.name;
     }
 
     // Validate location
     if (!latitude || !longitude) {
-      errors.latitude = "Location is required";
-      errors.longitude = "Location is required";
+      errors.latitude = t("component.createGroupForm.locationRequired");
+      errors.longitude = t("component.createGroupForm.locationRequired");
     } else {
       delete errors.latitude;
       delete errors.longitude;
@@ -187,11 +189,9 @@ export function CreateGroupForm({
         errorMessage.includes("already created") ||
         errorMessage.includes("409")
       ) {
-        setError(
-          "You have already created a group. Each device can only create one group."
-        );
+        setError(t("component.createGroupForm.alreadyCreatedGroup"));
       } else {
-        setError(errorMessage);
+        setError(t("component.createGroupForm.failedToCreate"));
       }
     } finally {
       setIsLoading(false);
@@ -207,7 +207,9 @@ export function CreateGroupForm({
       )}
 
       <div className="space-y-2">
-        <Label htmlFor="group-name">Group Name</Label>
+        <Label htmlFor="group-name">
+          {t("component.createGroupForm.groupName")}
+        </Label>
         <Input
           id="group-name"
           value={name}
@@ -217,37 +219,44 @@ export function CreateGroupForm({
               setFieldErrors({ ...fieldErrors, name: undefined });
             }
           }}
-          placeholder="Enter group name"
+          placeholder={t("component.createGroupForm.groupNamePlaceholder")}
           required
           maxLength={100}
-          isDisabled={isLoading || isLoadingSuggestion}
+          disabled={isLoading || isLoadingSuggestion}
           aria-invalid={!!fieldErrors.name}
           aria-describedby={fieldErrors.name ? "group-name-error" : undefined}
         />
         {fieldErrors.name && (
-          <p id="group-name-error" className="text-xs text-destructive">
+          <p
+            id="group-name-error"
+            className="text-caption leading-caption text-destructive"
+          >
             {fieldErrors.name}
           </p>
         )}
         {isLoadingSuggestion && !fieldErrors.name && (
-          <p className="text-xs text-muted-foreground flex items-center gap-1">
+          <p className="text-caption leading-caption text-muted-foreground flex items-center gap-1">
             <Loader2 className="size-3 animate-spin" />
-            Loading suggestions...
+            {t("component.createGroupForm.loadingSuggestions")}
           </p>
         )}
         {!fieldErrors.name && !isLoadingSuggestion && (
-          <p className="text-xs text-muted-foreground">
-            {100 - name.length} characters remaining
+          <p className="text-caption leading-caption text-muted-foreground">
+            {t("component.createGroupForm.charactersRemaining", {
+              count: 100 - name.length,
+            })}
           </p>
         )}
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="group-type">Group Type</Label>
+        <Label htmlFor="group-type">
+          {t("component.createGroupForm.groupType")}
+        </Label>
         <Select
           value={type}
           onValueChange={(value) => setType(value as Group["type"])}
-          isDisabled={isLoading || isLoadingSuggestion}
+          disabled={isLoading || isLoadingSuggestion}
         >
           <SelectTrigger id="group-type">
             <SelectValue />
@@ -263,15 +272,15 @@ export function CreateGroupForm({
       </div>
 
       <div className="space-y-2">
-        <Label>Location</Label>
+        <Label>{t("component.createGroupForm.location")}</Label>
         {isLoadingLocation ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <div className="flex items-center gap-2 text-body leading-body text-muted-foreground">
             <Loader2 className="size-4 animate-spin" />
-            <span>Getting your location...</span>
+            <span>{t("component.createGroupForm.gettingLocation")}</span>
           </div>
         ) : latitude && longitude ? (
           <div className="space-y-2">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <div className="flex items-center gap-2 text-body leading-body text-muted-foreground">
               <MapPin className="size-4" />
               <span>
                 {latitude.toFixed(6)}, {longitude.toFixed(6)}
@@ -279,8 +288,11 @@ export function CreateGroupForm({
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <Label htmlFor="manual-lat" className="text-xs">
-                  Latitude
+                <Label
+                  htmlFor="manual-lat"
+                  className="text-caption leading-caption"
+                >
+                  {t("component.createGroupForm.latitude")}
                 </Label>
                 <Input
                   id="manual-lat"
@@ -297,7 +309,9 @@ export function CreateGroupForm({
                     }
                   }}
                   onBlur={handleManualLocationChange}
-                  placeholder="-90 to 90"
+                  placeholder={t(
+                    "component.createGroupForm.latitudePlaceholder"
+                  )}
                   min={-90}
                   max={90}
                   aria-invalid={!!fieldErrors.latitude}
@@ -308,15 +322,18 @@ export function CreateGroupForm({
                 {fieldErrors.latitude && (
                   <p
                     id="manual-lat-error"
-                    className="text-xs text-destructive mt-1"
+                    className="text-caption leading-caption text-destructive mt-1"
                   >
                     {fieldErrors.latitude}
                   </p>
                 )}
               </div>
               <div>
-                <Label htmlFor="manual-lon" className="text-xs">
-                  Longitude
+                <Label
+                  htmlFor="manual-lon"
+                  className="text-caption leading-caption"
+                >
+                  {t("component.createGroupForm.longitude")}
                 </Label>
                 <Input
                   id="manual-lon"
@@ -333,7 +350,9 @@ export function CreateGroupForm({
                     }
                   }}
                   onBlur={handleManualLocationChange}
-                  placeholder="-180 to 180"
+                  placeholder={t(
+                    "component.createGroupForm.longitudePlaceholder"
+                  )}
                   min={-180}
                   max={180}
                   aria-invalid={!!fieldErrors.longitude}
@@ -344,7 +363,7 @@ export function CreateGroupForm({
                 {fieldErrors.longitude && (
                   <p
                     id="manual-lon-error"
-                    className="text-xs text-destructive mt-1"
+                    className="text-caption leading-caption text-destructive mt-1"
                   >
                     {fieldErrors.longitude}
                   </p>
@@ -354,13 +373,16 @@ export function CreateGroupForm({
           </div>
         ) : (
           <div className="space-y-2">
-            <p className="text-sm text-muted-foreground">
-              Location not available. Please enter coordinates manually.
+            <p className="text-body leading-body text-muted-foreground">
+              {t("component.createGroupForm.locationNotAvailable")}
             </p>
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <Label htmlFor="manual-lat" className="text-xs">
-                  Latitude
+                <Label
+                  htmlFor="manual-lat"
+                  className="text-caption leading-caption"
+                >
+                  {t("component.createGroupForm.latitude")}
                 </Label>
                 <Input
                   id="manual-lat"
@@ -374,7 +396,9 @@ export function CreateGroupForm({
                     })
                   }
                   onBlur={handleManualLocationChange}
-                  placeholder="-90 to 90"
+                  placeholder={t(
+                    "component.createGroupForm.latitudePlaceholder"
+                  )}
                   min={-90}
                   max={90}
                   required
@@ -388,15 +412,18 @@ export function CreateGroupForm({
                 {fieldErrors.latitude && (
                   <p
                     id="manual-lat-error-required"
-                    className="text-xs text-destructive mt-1"
+                    className="text-caption leading-caption text-destructive mt-1"
                   >
                     {fieldErrors.latitude}
                   </p>
                 )}
               </div>
               <div>
-                <Label htmlFor="manual-lon" className="text-xs">
-                  Longitude
+                <Label
+                  htmlFor="manual-lon"
+                  className="text-caption leading-caption"
+                >
+                  {t("component.createGroupForm.longitude")}
                 </Label>
                 <Input
                   id="manual-lon"
@@ -410,7 +437,9 @@ export function CreateGroupForm({
                     })
                   }
                   onBlur={handleManualLocationChange}
-                  placeholder="-180 to 180"
+                  placeholder={t(
+                    "component.createGroupForm.longitudePlaceholder"
+                  )}
                   min={-180}
                   max={180}
                   required
@@ -424,7 +453,7 @@ export function CreateGroupForm({
                 {fieldErrors.longitude && (
                   <p
                     id="manual-lon-error-required"
-                    className="text-xs text-destructive mt-1"
+                    className="text-caption leading-caption text-destructive mt-1"
                   >
                     {fieldErrors.longitude}
                   </p>
@@ -435,20 +464,29 @@ export function CreateGroupForm({
         )}
       </div>
 
-      <div className="flex gap-2">
-        <Button type="submit" isDisabled={isLoading || !latitude || !longitude}>
+      <div className="flex gap-3">
+        <Button
+          type="submit"
+          isDisabled={isLoading || !latitude || !longitude}
+          className="h-12"
+        >
           {isLoading ? (
             <>
               <Loader2 className="mr-2 size-4 animate-spin" />
-              Creating...
+              {t("component.createGroupForm.creating")}
             </>
           ) : (
-            "Create Group"
+            t("component.createGroupForm.createGroup")
           )}
         </Button>
         {onCancel && (
-          <Button type="button" variant="outline" onClick={onCancel}>
-            Cancel
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onCancel}
+            className="h-12"
+          >
+            {t("button.cancel")}
           </Button>
         )}
       </div>

@@ -4,6 +4,8 @@
  */
 
 import type { Message } from '../../domain/message';
+import { t } from '@/lib/i18n';
+import { cn } from '@/lib/utils';
 
 export interface SOSMessageProps {
   /** SOS message to display */
@@ -12,11 +14,14 @@ export interface SOSMessageProps {
   isOwn?: boolean;
 }
 
-const SOS_TYPE_LABELS: Record<string, string> = {
-  medical: 'Medical Emergency',
-  flood: 'Flood Emergency',
-  fire: 'Fire Emergency',
-  missing_person: 'Missing Person',
+const getSOSTypeLabel = (type: string): string => {
+  const labels: Record<string, string> = {
+    medical: t('sos.medical'),
+    flood: t('sos.flood'),
+    fire: t('sos.fire'),
+    missing_person: t('sos.missingPerson'),
+  };
+  return labels[type] || t('sos.medical');
 };
 
 const SOS_TYPE_ICONS: Record<string, string> = {
@@ -36,21 +41,24 @@ export function SOSMessage({ message, isOwn = false }: SOSMessageProps) {
   }
 
   const sosType = message.sos_type;
-  const sosLabel = SOS_TYPE_LABELS[sosType] || 'Emergency';
+  const sosLabel = getSOSTypeLabel(sosType);
   const sosIcon = SOS_TYPE_ICONS[sosType] || '🚨';
 
   return (
-    <div className={`sos-message ${isOwn ? 'sos-message--own' : ''}`}>
-      <div className="sos-message-header">
-        <span className="sos-message-icon">{sosIcon}</span>
-        <span className="sos-message-type">{sosLabel}</span>
-        <span className="sos-message-badge">URGENT</span>
-      </div>
-      <div className="sos-message-content">{message.content}</div>
-      <div className="sos-message-footer">
-        <span className="sos-message-timestamp">
-          {new Date(message.created_at).toLocaleTimeString()}
+    <div className={cn(
+      "rounded-lg border-2 border-sos bg-sos/10 p-4 shadow-lg",
+      isOwn && "border-sos bg-sos/20"
+    )}>
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-2xl">{sosIcon}</span>
+        <span className="font-bold text-sos text-heading-2 leading-heading-2">{sosLabel}</span>
+        <span className="ml-auto rounded-full bg-sos px-3 py-1 text-caption leading-caption font-bold text-white">
+          {t("common.urgent") || "KHẨN CẤP"}
         </span>
+      </div>
+      <div className="text-body leading-body font-medium mb-2">{message.content}</div>
+      <div className="text-caption leading-caption text-muted-foreground">
+        {new Date(message.created_at).toLocaleTimeString()}
       </div>
     </div>
   );

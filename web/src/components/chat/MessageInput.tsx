@@ -10,6 +10,7 @@ import { Input } from "../ui/input";
 import { Alert, AlertDescription } from "../ui/alert";
 import { cn } from "@/lib/utils";
 import { showToast } from "../../utils/toast";
+import { t } from "@/lib/i18n";
 
 export interface MessageInputProps {
   /** Callback when message is sent */
@@ -31,7 +32,7 @@ const MAX_MESSAGE_LENGTH = 500;
 export function MessageInput({
   onSend,
   disabled = false,
-  placeholder = "Type a message...",
+  placeholder = t("component.messageInput.placeholder"),
   className = "",
 }: MessageInputProps) {
   const [content, setContent] = useState("");
@@ -43,12 +44,12 @@ export function MessageInput({
     setError(null);
 
     if (!trimmed || trimmed.length === 0) {
-      setError("Message cannot be empty");
+      setError(t("component.messageInput.messageCannotBeEmpty"));
       return;
     }
 
     if (trimmed.length > MAX_MESSAGE_LENGTH) {
-      setError(`Message must be ${MAX_MESSAGE_LENGTH} characters or less`);
+      setError(t("component.messageInput.messageTooLong", { max: MAX_MESSAGE_LENGTH }));
       return;
     }
 
@@ -57,10 +58,10 @@ export function MessageInput({
       await onSend(trimmed);
       setContent("");
       setError(null);
-      showToast("Message sent", "success");
+      showToast(t("component.messageInput.messageSent"), "success");
     } catch (err) {
       const errorMessage =
-        err instanceof Error ? err.message : "Failed to send message";
+        err instanceof Error ? err.message : t("component.messageInput.failedToSend");
       setError(errorMessage);
       showToast(errorMessage, "error");
       // Keep content on error so user can retry
@@ -90,7 +91,7 @@ export function MessageInput({
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      <div className="flex items-center gap-2 p-4">
+      <div className="flex items-center gap-3 p-4">
         <Input
           value={content}
           onChange={(e) => {
@@ -99,9 +100,9 @@ export function MessageInput({
           }}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
-          isDisabled={disabled || isSending}
+          disabled={disabled || isSending}
           maxLength={MAX_MESSAGE_LENGTH}
-          className="flex-1"
+          className="flex-1 h-12"
           aria-invalid={!!error}
           aria-describedby={error ? "message-input-error" : undefined}
           aria-label="Message input"
@@ -109,7 +110,8 @@ export function MessageInput({
         <Button
           onClick={handleSend}
           isDisabled={!canSend || disabled}
-          size="icon"
+          size="default"
+          className="h-12 min-w-12"
           aria-label="Send message"
         >
           {isSending ? (
@@ -121,7 +123,7 @@ export function MessageInput({
         {remainingChars < 50 && (
           <span
             className={cn(
-              "text-xs min-w-[2rem] text-right",
+              "text-caption leading-caption min-w-8 text-right",
               remainingChars < 10 ? "text-destructive" : "text-muted-foreground"
             )}
             aria-live="polite"

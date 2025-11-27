@@ -7,6 +7,7 @@ import { Component, type ReactNode } from "react";
 import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
 import { Button } from "../ui/button";
 import { AlertCircle } from "lucide-react";
+import { t } from "@/lib/i18n";
 
 export interface ErrorBoundaryProps {
   /** Child components */
@@ -67,15 +68,15 @@ export class ErrorBoundary extends Component<
         <div className="flex min-h-screen items-center justify-center p-4">
           <Alert variant="destructive" className="max-w-md">
             <AlertCircle className="h-4 w-4" />
-            <AlertTitle>Something went wrong</AlertTitle>
+            <AlertTitle>{t("error.unknown")}</AlertTitle>
             <AlertDescription className="mt-2">
               <p className="mb-4">
-                An unexpected error occurred. Please try refreshing the page.
+                {t("error.unknown")}
               </p>
               {import.meta.env.DEV && this.state.error && (
                 <details className="mt-2">
                   <summary className="cursor-pointer text-sm font-medium">
-                    Error details
+                    {t("error.unknown")}
                   </summary>
                   <pre className="mt-2 overflow-auto rounded bg-muted p-2 text-xs">
                     {this.state.error.toString()}
@@ -85,14 +86,14 @@ export class ErrorBoundary extends Component<
               )}
               <div className="mt-4 flex gap-2">
                 <Button onClick={this.handleReset} variant="outline" size="sm">
-                  Try again
+                  {t("common.tryAgain") || t("button.back")}
                 </Button>
                 <Button
                   onClick={() => window.location.reload()}
                   variant="default"
                   size="sm"
                 >
-                  Refresh page
+                  {t("common.refresh") || t("button.back")}
                 </Button>
               </div>
             </AlertDescription>

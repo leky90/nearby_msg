@@ -16,6 +16,7 @@ import { isFavorited } from "../../services/favorite-service";
 import { getGroupStatusSummary } from "../../services/status-service";
 import { StatusSummary } from "../groups/StatusSummary";
 import { PinnedMessagesModal } from "./PinnedMessagesModal";
+import { t } from "@/lib/i18n";
 
 export interface ChatHeaderProps {
   /** Group information */
@@ -37,11 +38,11 @@ type SyncStatus = "online" | "offline" | "syncing" | "pending";
  */
 function getGroupTypeLabel(type: Group["type"]): string {
   const labels: Record<Group["type"], string> = {
-    neighborhood: "Neighborhood",
-    ward: "Ward",
-    district: "District",
-    apartment: "Apartment",
-    other: "Other",
+    neighborhood: t("group.type.neighborhood"),
+    ward: t("group.type.ward"),
+    district: t("group.type.district"),
+    apartment: t("group.type.apartment"),
+    other: t("group.type.other"),
   };
   return labels[type] || type;
 }
@@ -145,26 +146,26 @@ export function ChatHeader({
   const getSyncIcon = () => {
     switch (syncStatus) {
       case "offline":
-        return <WifiOff className="size-4 text-muted-foreground" />;
+        return <WifiOff className="size-4 text-muted-semantic" />;
       case "syncing":
-        return <Loader2 className="size-4 animate-spin text-primary" />;
+        return <Loader2 className="size-4 animate-spin text-info" />;
       case "pending":
-        return <WifiOff className="size-4 text-yellow-500" />;
+        return <WifiOff className="size-4 text-warning" />;
       default:
-        return <Wifi className="size-4 text-green-500" />;
+        return <Wifi className="size-4 text-safety" />;
     }
   };
 
   const getSyncLabel = () => {
     switch (syncStatus) {
       case "offline":
-        return "Offline";
+        return t("component.chatHeader.offline");
       case "syncing":
-        return "Syncing...";
+        return t("component.chatHeader.syncing");
       case "pending":
-        return `${pendingCount} pending`;
+        return t("component.chatHeader.pending", { count: pendingCount });
       default:
-        return "Synced";
+        return t("component.chatHeader.synced");
     }
   };
 
@@ -182,7 +183,7 @@ export function ChatHeader({
           </AvatarFallback>
         </Avatar>
         <div className="flex flex-col">
-          <h2 className="text-lg font-semibold">{group.name}</h2>
+          <h2 className="text-heading-2 font-semibold leading-heading-2">{group.name}</h2>
           <div className="flex items-center gap-2">
             <Badge variant="secondary" className="w-fit text-xs">
               {getGroupTypeLabel(group.type)}
@@ -190,10 +191,10 @@ export function ChatHeader({
             <div
               className={cn(
                 "flex items-center gap-1 text-xs",
-                syncStatus === "offline" && "text-muted-foreground",
-                syncStatus === "pending" && "text-yellow-600",
-                syncStatus === "syncing" && "text-primary",
-                syncStatus === "online" && "text-green-600"
+                syncStatus === "offline" && "text-muted-semantic",
+                syncStatus === "pending" && "text-warning",
+                syncStatus === "syncing" && "text-info",
+                syncStatus === "online" && "text-safety"
               )}
               title={getSyncLabel()}
             >
@@ -213,7 +214,7 @@ export function ChatHeader({
           variant="ghost"
           size="sm"
           onClick={() => setPinnedModalOpen(true)}
-          aria-label="View pinned messages"
+          aria-label={t("component.chatHeader.viewPinnedMessages")}
         >
           <Pin className="size-4" />
         </Button>
@@ -226,7 +227,7 @@ export function ChatHeader({
               setFavorited(newFavorited);
               onFavoriteToggle(newFavorited);
             }}
-            aria-label={favorited ? "Unfavorite group" : "Favorite group"}
+            aria-label={favorited ? t("component.chatHeader.unfavoriteGroup") : t("component.chatHeader.favoriteGroup")}
           >
             <Star
               className={cn(

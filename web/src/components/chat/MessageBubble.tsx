@@ -9,6 +9,7 @@ import type { Message } from "../../domain/message";
 import { cn } from "@/lib/utils";
 import { pinMessage, unpinMessage, isPinned } from "../../services/pin-service";
 import { Button } from "../ui/button";
+import { t } from "@/lib/i18n";
 
 export interface MessageBubbleProps {
   /** Message to display */
@@ -150,17 +151,22 @@ export const MessageBubble = memo(
         </div>
         <div
           className={cn(
-            "text-xs",
+            "text-caption leading-caption",
             isOwn ? "text-primary-foreground/70" : "text-muted-foreground"
           )}
         >
           {formatMessageTimestamp(message.created_at)}
         </div>
         {message.sync_status && message.sync_status !== "synced" && (
-          <div className="text-xs opacity-60">
-            {message.sync_status === "pending" && "⏳ Sending..."}
-            {message.sync_status === "syncing" && "🔄 Syncing..."}
-            {message.sync_status === "failed" && "❌ Failed to send"}
+          <div className={cn(
+            "text-caption leading-caption",
+            message.sync_status === "pending" && "text-warning",
+            message.sync_status === "syncing" && "text-info",
+            message.sync_status === "failed" && "text-sos"
+          )}>
+            {message.sync_status === "pending" && `⏳ ${t("network.pending", { count: 1 })}`}
+            {message.sync_status === "syncing" && `🔄 ${t("network.syncing")}`}
+            {message.sync_status === "failed" && `❌ ${t("error.network")}`}
           </div>
         )}
       </div>

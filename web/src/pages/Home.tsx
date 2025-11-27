@@ -33,6 +33,8 @@ import { fetchStatus } from "../services/status-service";
 import { calculateDistance } from "../domain/group";
 import type { Group } from "../domain/group";
 import type { FavoriteGroup } from "../domain/favorite_group";
+import { t } from "../lib/i18n";
+import { NetworkBanner } from "../components/common/NetworkBanner";
 
 type HomeView = "home" | "create-group";
 
@@ -49,8 +51,8 @@ export function Home() {
     FavoriteGroupWithDetails[]
   >([]);
 
-  // TODO: Get default/selected group ID from context or state
-  const defaultGroupId = undefined; // Will be set when groups are implemented
+  // Default group ID will be set when groups are implemented
+  const defaultGroupId = undefined;
 
   // Use TanStack Query for status fetching
   const { data: currentStatus, isLoading: isLoadingStatus } = useQuery({
@@ -170,13 +172,16 @@ export function Home() {
   return (
     <div className="container mx-auto max-w-4xl p-4">
       <header className="mb-8 text-center">
-        <h1 className="text-3xl font-bold">Nearby Community Chat</h1>
-        <p className="mt-2 text-muted-foreground">
-          Connect with your local community during emergencies
+        <h1 className="text-heading-1 font-bold leading-heading-1">
+          {t("page.home.title")}
+        </h1>
+        <p className="mt-2 text-body leading-body text-muted-foreground">
+          {t("page.home.subtitle")}
         </p>
       </header>
 
       <main className="space-y-6">
+        <NetworkBanner />
         <section className="flex items-center justify-end">
           <ConnectivityStatus showLabel={true} size="sm" />
         </section>
@@ -184,21 +189,23 @@ export function Home() {
         <section>
           <Card>
             <CardHeader>
-              <CardTitle>Emergency SOS</CardTitle>
+              <CardTitle>{t("page.home.emergencySOS")}</CardTitle>
               <CardDescription>
-                Send an emergency SOS message to nearby groups
+                {t("page.home.emergencySOSDescription")}
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <SOSButton
-                groupId={defaultGroupId}
-                variant="destructive"
-                size="default"
-                onSOSSent={() => {
-                  // TODO: Navigate to chat or show confirmation
-                  console.log("SOS message sent");
-                }}
-              />
+              <div className="flex justify-center">
+                <SOSButton
+                  groupId={defaultGroupId}
+                  variant="destructive"
+                  size="lg"
+                  onSOSSent={() => {
+                    // TODO: Navigate to chat or show confirmation
+                    console.log("SOS message sent");
+                  }}
+                />
+              </div>
             </CardContent>
           </Card>
         </section>
@@ -206,9 +213,9 @@ export function Home() {
         <section>
           <Card>
             <CardHeader>
-              <CardTitle>My Status</CardTitle>
+              <CardTitle>{t("page.home.myStatus")}</CardTitle>
               <CardDescription>
-                Update your safety status to let others know how you're doing
+                {t("page.home.myStatusDescription")}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -246,18 +253,18 @@ export function Home() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <MapPin className="size-5" />
-                  Discover Groups
+                  {t("page.home.discoverGroups")}
                 </CardTitle>
                 <CardDescription>
-                  Find and join nearby community groups
+                  {t("page.home.discoverGroupsDescription")}
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <Button
                   onClick={handleNavigateToNearbyGroups}
-                  className="w-full"
+                  className="w-full h-12"
                 >
-                  Browse Nearby Groups
+                  {t("page.home.discoverGroups")}
                 </Button>
               </CardContent>
             </Card>
@@ -266,19 +273,19 @@ export function Home() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Users className="size-5" />
-                  Create Group
+                  {t("page.home.createGroup")}
                 </CardTitle>
                 <CardDescription>
-                  Create a new community group for your area
+                  {t("page.home.createGroupDescription")}
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <Button
                   onClick={handleCreateGroup}
                   variant="outline"
-                  className="w-full"
+                  className="w-full h-12"
                 >
-                  Create New Group
+                  {t("button.createGroup")}
                 </Button>
               </CardContent>
             </Card>
@@ -290,21 +297,30 @@ export function Home() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Star className="size-5 fill-yellow-400 text-yellow-400" />
-                Favorite Groups
+                {t("page.home.favoriteGroups")}
               </CardTitle>
               <CardDescription>
-                Quick access to your favorite community groups
+                {t("page.home.favoriteGroupsDescription")}
               </CardDescription>
             </CardHeader>
             <CardContent>
               {isLoadingFavorites ? (
                 <div className="grid gap-4 md:grid-cols-2">
                   {[1, 2].map((i) => (
-                    <Card key={i}>
-                      <CardContent className="p-4 space-y-2">
-                        <Skeleton className="h-6 w-3/4" />
-                        <Skeleton className="h-4 w-1/2" />
-                        <Skeleton className="h-4 w-2/3" />
+                    <Card key={i} className="min-h-[48px]">
+                      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <div className="flex items-center gap-2">
+                          <Skeleton className="h-4 w-4 rounded-full" />
+                          <Skeleton className="h-6 w-32" />
+                        </div>
+                        <Skeleton className="h-8 w-8 rounded-full" />
+                      </CardHeader>
+                      <CardContent className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Skeleton className="h-5 w-16 rounded-full" />
+                          <Skeleton className="h-4 w-20" />
+                        </div>
+                        <Skeleton className="h-4 w-24" />
                       </CardContent>
                     </Card>
                   ))}
@@ -329,7 +345,7 @@ export function Home() {
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground text-center py-4">
-                  No favorite groups yet. Discover groups to add favorites.
+                  {t("page.home.noFavoriteGroups")}
                 </p>
               )}
             </CardContent>

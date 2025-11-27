@@ -14,6 +14,8 @@ import { getOrCreateDeviceId } from "../../services/device-storage";
 import { SOSSelector } from "./SOSSelector";
 import { Button } from "../ui/button";
 import { Alert, AlertDescription } from "../ui/alert";
+import { t } from "@/lib/i18n";
+import { cn } from "@/lib/utils";
 
 export interface SOSButtonProps {
   /** Group ID to send SOS message to */
@@ -90,12 +92,12 @@ export function SOSButton({
   return (
     <>
       <Button
-        variant={variant}
-        size={size}
+        variant={variant === "destructive" ? "sos" : variant}
+        size={size === "sm" ? "default" : size} // Ensure minimum h-12
         onClick={handleSOSClick}
         isDisabled={isSending || !groupId}
-        aria-label="Send Emergency SOS"
-        className={className}
+        aria-label={t("button.sendSOS")}
+        className={cn(className, "min-h-12")}
       >
         <AlertTriangle className="size-4" />
         {!isIconOnly && <span>SOS</span>}

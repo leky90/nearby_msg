@@ -9,6 +9,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "../ui/card";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { cn } from "@/lib/utils";
+import { t } from "@/lib/i18n";
 
 export interface FavoriteGroupCardProps {
   /** Group information */
@@ -40,11 +41,11 @@ function formatDistance(meters: number): string {
  */
 function getGroupTypeLabel(type: Group["type"]): string {
   const labels: Record<Group["type"], string> = {
-    neighborhood: "Neighborhood",
-    ward: "Ward",
-    district: "District",
-    apartment: "Apartment",
-    other: "Other",
+    neighborhood: t("group.type.neighborhood"),
+    ward: t("group.type.ward"),
+    district: t("group.type.district"),
+    apartment: t("group.type.apartment"),
+    other: t("group.type.other"),
   };
   return labels[type] || type;
 }
@@ -83,7 +84,7 @@ export function FavoriteGroupCard({
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <div className="flex items-center gap-2">
           <Star className="size-4 fill-yellow-400 text-yellow-400" />
-          <CardTitle className="text-base font-semibold">
+          <CardTitle className="text-heading-2 font-semibold leading-heading-2">
             {group.name}
           </CardTitle>
         </div>
@@ -92,7 +93,7 @@ export function FavoriteGroupCard({
           size="sm"
           onClick={handleUnfavorite}
           className="h-8 w-8 p-0"
-          aria-label="Unfavorite group"
+          aria-label={t("button.unfavorite")}
         >
           <Star className="size-4 fill-yellow-400 text-yellow-400" />
         </Button>
@@ -112,7 +113,7 @@ export function FavoriteGroupCard({
         {unreadCount > 0 && (
           <div className="flex items-center gap-1 text-sm text-primary">
             <MessageSquare className="size-4" />
-            <span className="font-medium">{unreadCount} unread</span>
+            <span className="font-medium">{unreadCount} {t("common.unread") || "chưa đọc"}</span>
           </div>
         )}
       </CardContent>

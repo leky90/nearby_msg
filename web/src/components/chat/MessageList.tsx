@@ -12,6 +12,7 @@ import { getOrCreateDeviceId } from "../../services/device-storage";
 import { ScrollArea } from "../ui/scroll-area";
 import { Skeleton } from "../ui/skeleton";
 import { cn } from "@/lib/utils";
+import { t } from "@/lib/i18n";
 
 export interface MessageListProps {
   /** Messages to display */
@@ -118,10 +119,12 @@ export function MessageList({
     return (
       <ScrollArea className="h-full">
         <div className="space-y-4 p-4">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="space-y-2">
-              <Skeleton className="h-4 w-3/4" />
-              <Skeleton className="h-4 w-1/2" />
+          {[1, 2, 3, 4, 5].map((i) => (
+            <div key={i} className={cn("flex", i % 2 === 0 && "justify-end")}>
+              <div className={cn("space-y-2 max-w-[80%]", i % 2 === 0 && "items-end")}>
+                <Skeleton className="h-16 w-full rounded-lg" />
+                <Skeleton className="h-4 w-24" />
+              </div>
             </div>
           ))}
         </div>
@@ -173,8 +176,8 @@ export function MessageList({
   if (messages.length === 0) {
     return (
       <ScrollArea className="h-full">
-        <div className="flex h-full items-center justify-center text-center text-muted-foreground p-4">
-          <p>No messages yet. Start the conversation!</p>
+        <div className="flex h-full items-center justify-center text-center text-body leading-body text-muted-foreground p-4">
+          <p>{t("page.chat.noMessages") || "Chưa có tin nhắn nào. Bắt đầu cuộc trò chuyện!"}</p>
         </div>
       </ScrollArea>
     );

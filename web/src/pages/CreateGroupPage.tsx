@@ -9,6 +9,7 @@ import type { Group } from '../domain/group';
 import { CreateGroupForm } from '../components/groups/CreateGroupForm';
 import { Button } from '../components/ui/button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '../components/ui/card';
+import { t } from '../lib/i18n';
 
 export interface CreateGroupPageProps {
   /** Callback when group is created */
@@ -38,17 +39,17 @@ export function CreateGroupPage({ onGroupCreated, onBack }: CreateGroupPageProps
       <div className="container mx-auto max-w-2xl p-4">
         <Card>
           <CardHeader>
-            <CardTitle>Group Created Successfully!</CardTitle>
+            <CardTitle>{t("common.success")}</CardTitle>
             <CardDescription>
-              Your group &quot;{createdGroup.name}&quot; has been created.
+              {t("page.createGroup.groupCreated", { name: createdGroup.name }) || `Nhóm "${createdGroup.name}" đã được tạo.`}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                You can now start chatting with nearby community members.
+                {t("page.createGroup.canStartChatting") || "Bạn có thể bắt đầu trò chuyện với các thành viên cộng đồng gần đây."}
               </p>
-              <Button onClick={handleBack}>Go to Home</Button>
+              <Button onClick={handleBack}>{t("button.back")}</Button>
             </div>
           </CardContent>
         </Card>
@@ -61,15 +62,15 @@ export function CreateGroupPage({ onGroupCreated, onBack }: CreateGroupPageProps
       <div className="mb-4">
         <Button variant="ghost" size="sm" onClick={handleBack}>
           <ArrowLeft className="mr-2 size-4" />
-          Back
+          {t("button.back")}
         </Button>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Create a New Group</CardTitle>
+          <CardTitle>{t("page.createGroup.title")}</CardTitle>
           <CardDescription>
-            Create a community group for your area. Each device can create one group.
+            {t("page.createGroup.description")}
           </CardDescription>
         </CardHeader>
         <CardContent>
