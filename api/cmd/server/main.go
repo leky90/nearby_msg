@@ -1,0 +1,201 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"runtime"
+	"sort"
+	"strings"
+	"syscall"
+	"time"
+
+	"nearby-msg/api/internal/handler"
+	"nearby-msg/api/internal/infrastructure/auth"
+	"nearby-msg/api/internal/infrastructure/database"
+	"nearby-msg/api/internal/service"
+
+	"github.com/joho/godotenv"
+)
+
+func main() {
+	// Load .env file if it exists (for development)
+	// In production, environment variables should be set by the deployment platform
+	if err := godotenv.Load(); err != nil {
+		// .env file is optional - environment variables can be set directly
+		log.Println("Note: .env file not found, using environment variables")
+	}
+
+	ctx := context.Background()
+
+	// Initialize database connection pool
+	dbPool, err := database.NewPool(ctx)
+	if err != nil {
+		log.Fatalf("Failed to connect to database: %v", err)
+	}
+	defer dbPool.Close()
+
+	// Run migrations
+	if err := runMigrations(ctx, dbPool); err != nil {
+		log.Fatalf("Failed to run migrations: %v", err)
+	}
+
+	// Initialize repositories
+	deviceRepo := database.NewDeviceRepository(dbPool)
+	groupRepo := database.NewGroupRepository(dbPool)
+	messageRepo := database.NewMessageRepository(dbPool)
+	favoriteRepo := database.NewFavoriteRepository(dbPool)
+	statusRepo := database.NewStatusRepository(dbPool)
+	pinRepo := database.NewPinRepository(dbPool)
+
+	// Initialize services
+	deviceService := service.NewDeviceService(deviceRepo)
+	groupService := service.NewGroupService(groupRepo)
+	messageService := service.NewMessageService(messageRepo)
+	replicationService := service.NewReplicationService(messageRepo, messageService)
+	favoriteService := service.NewFavoriteService(favoriteRepo)
+	statusService := service.NewStatusService(statusRepo)
+	pinService := service.NewPinService(pinRepo, messageRepo)
+
+	// Initialize handlers
+	deviceHandler := handler.NewDeviceHandler(deviceService)
+	groupHandler := handler.NewGroupHandler(groupService, favoriteService, statusService, pinService)
+	replicationHandler := handler.NewReplicationHandler(replicationService)
+	statusHandler := handler.NewStatusHandler(statusService)
+	messageHandler := handler.NewMessageHandler(pinService)
+
+	// Get port from environment or use default
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	// Create HTTP server with error handling middleware
+	mux := http.NewServeMux()
+
+	// Wrap all handlers with error handling middleware
+	errorHandler := handler.ErrorHandlerMiddleware
+
+	// Health check endpoint (no error middleware needed)
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	})
+
+	// API v1 routes with error handling middleware
+	mux.Handle("/v1/device/register", errorHandler(http.HandlerFunc(deviceHandler.RegisterDevice)))
+	mux.Handle("/v1/device", errorHandler(http.HandlerFunc(deviceHandler.GetDevice)))
+	mux.Handle("/v1/device/", errorHandler(http.HandlerFunc(deviceHandler.UpdateDevice)))
+
+	// Group routes
+	mux.Handle("/v1/groups/nearby", errorHandler(http.HandlerFunc(groupHandler.GetNearbyGroups)))
+	mux.Handle("/v1/groups/suggest", errorHandler(http.HandlerFunc(groupHandler.SuggestGroup)))
+	mux.Handle("/v1/groups", errorHandler(auth.AuthMiddleware(http.HandlerFunc(groupHandler.CreateGroup))))
+	// Group and favorite routes (handler will route based on path and method)
+	mux.Handle("/v1/groups/", errorHandler(auth.AuthMiddleware(http.HandlerFunc(groupHandler.HandleGroupRoutes))))
+
+	// Replication routes
+	mux.Handle("/v1/replicate/push", errorHandler(auth.AuthMiddleware(http.HandlerFunc(replicationHandler.Push))))
+	mux.Handle("/v1/replicate/pull", errorHandler(auth.AuthMiddleware(http.HandlerFunc(replicationHandler.Pull))))
+
+	// Message routes (pin/unpin)
+	mux.Handle("/v1/messages/", errorHandler(auth.AuthMiddleware(http.HandlerFunc(messageHandler.HandleMessageRoutes))))
+
+	// Status routes
+	mux.Handle("/v1/status", errorHandler(auth.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut {
+			statusHandler.UpdateStatus(w, r)
+		} else if r.Method == http.MethodGet {
+			statusHandler.GetStatus(w, r)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))))
+	// Group status summary route (must be before /v1/groups/ to avoid conflict)
+	mux.Handle("/v1/groups/status-summary", errorHandler(auth.AuthMiddleware(http.HandlerFunc(groupHandler.GetGroupStatusSummary))))
+
+	server := &http.Server{
+		Addr:    ":" + port,
+		Handler: mux,
+	}
+
+	// Start server in a goroutine
+	go func() {
+		log.Printf("Server starting on port %s", port)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Server failed to start: %v", err)
+		}
+	}()
+
+	// Wait for interrupt signal to gracefully shutdown
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	log.Println("Shutting down server...")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		log.Fatalf("Server forced to shutdown: %v", err)
+	}
+
+	log.Println("Server exited")
+}
+
+// runMigrations executes database migrations in order
+func runMigrations(ctx context.Context, pool *database.Pool) error {
+	// Get migrations directory path relative to this file
+	_, currentFile, _, _ := runtime.Caller(0)
+	baseDir := filepath.Dir(currentFile)
+	migrationsDir := filepath.Join(baseDir, "../../internal/infrastructure/database/migrations")
+	migrationsDir, err := filepath.Abs(migrationsDir)
+	if err != nil {
+		return fmt.Errorf("failed to resolve migrations directory: %w", err)
+	}
+
+	// Read migration files from filesystem
+	entries, err := os.ReadDir(migrationsDir)
+	if err != nil {
+		return fmt.Errorf("failed to read migrations directory: %w", err)
+	}
+
+	// Filter and sort migration files
+	var migrationFiles []string
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".sql") {
+			migrationFiles = append(migrationFiles, entry.Name())
+		}
+	}
+	sort.Strings(migrationFiles)
+
+	// Execute each migration
+	for _, filename := range migrationFiles {
+		migrationPath := filepath.Join(migrationsDir, filename)
+		migrationSQL, err := os.ReadFile(migrationPath)
+		if err != nil {
+			return fmt.Errorf("failed to read migration %s: %w", filename, err)
+		}
+
+		log.Printf("Running migration: %s", filename)
+		if _, err := pool.Exec(ctx, string(migrationSQL)); err != nil {
+			// Ignore errors for existing objects (tables, indexes, triggers, functions)
+			errStr := err.Error()
+			if strings.Contains(errStr, "already exists") || 
+			   strings.Contains(errStr, "duplicate") ||
+			   strings.Contains(errStr, "SQLSTATE 42710") {
+				log.Printf("Migration %s: objects already exist, skipping", filename)
+				continue
+			}
+			return fmt.Errorf("failed to execute migration %s: %w", filename, err)
+		}
+		log.Printf("Migration %s completed", filename)
+	}
+
+	return nil
+}
