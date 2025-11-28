@@ -47,7 +47,7 @@ export function SOSButton({
 
   const handleSOSClick = () => {
     if (!groupId) {
-      setError("No group selected");
+      setError("Chưa chọn nhóm");
       return;
     }
 
@@ -74,7 +74,7 @@ export function SOSButton({
       onSOSSent?.();
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Failed to send SOS message"
+        err instanceof Error ? err.message : "Không thể gửi tin nhắn SOS"
       );
     } finally {
       setIsSending(false);

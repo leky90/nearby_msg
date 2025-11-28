@@ -49,7 +49,7 @@ export function RadiusFilter({
           <ToggleGroupItem
             key={option.value}
             value={option.value.toString()}
-            aria-label={`Select ${option.label} radius`}
+            aria-label={`Chọn bán kính ${option.label}`}
           >
             {option.label}
           </ToggleGroupItem>

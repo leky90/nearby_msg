@@ -45,6 +45,7 @@
   --color-sos: var(--sos);
   --color-safety: var(--safety);
   --color-warning: var(--warning);
+  --color-yellow: var(--yellow);
   --color-info: var(--info);
   --color-muted-semantic: var(--muted-semantic);
 
@@ -96,9 +97,10 @@
   --sidebar-ring: oklch(0.708 0 0);
 
   /* Semantic colors for emergency app */
-  --sos: oklch(0.577 0.245 27.325); /* Red-500 #EF4444 */
+  --sos: oklch(0.55 0.28 27.325); /* Bright red #EF4444 - more vibrant */
   --safety: oklch(0.5 0.15 145); /* Green-600 #16A34A */
   --warning: oklch(0.6 0.15 50); /* Orange-600 #EA580C */
+  --yellow: oklch(0.75 0.15 85); /* Yellow-500 #EAB308 */
   --info: oklch(0.5 0.15 250); /* Blue-600 #2563EB */
   --muted-semantic: oklch(0.556 0 0); /* Slate-500 #64748B */
 }
@@ -137,9 +139,10 @@
   --sidebar-ring: oklch(0.556 0 0);
 
   /* Semantic colors for dark mode (adjusted for better contrast) */
-  --sos: oklch(0.65 0.25 27.325); /* Lighter red for dark mode */
+  --sos: oklch(0.68 0.28 27.325); /* Brighter red for dark mode */
   --safety: oklch(0.55 0.15 145); /* Adjusted green for dark mode */
   --warning: oklch(0.65 0.15 50); /* Adjusted orange for dark mode */
+  --yellow: oklch(0.75 0.15 85); /* Yellow for dark mode */
   --info: oklch(0.55 0.15 250); /* Adjusted blue for dark mode */
   --muted-semantic: oklch(0.65 0 0); /* Lighter gray for dark mode */
 }
@@ -148,7 +151,24 @@
   * {
     @apply border-border outline-ring/50;
   }
+  html {
+    @apply h-full w-full overflow-x-hidden;
+  }
   body {
-    @apply bg-background text-foreground;
+    @apply h-full w-full m-0 p-0 fixed inset-0 bg-background text-foreground overflow-x-hidden;
+  }
+  #root {
+    @apply h-full w-full overflow-hidden relative;
+  }
+}
+
+/* Safe area support for iOS PWA - requires CSS env() variables */
+@supports (padding: max(0px)) {
+  .safe-area-bottom {
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  }
+
+  .safe-area-top {
+    padding-top: max(1rem, env(safe-area-inset-top));
   }
 }

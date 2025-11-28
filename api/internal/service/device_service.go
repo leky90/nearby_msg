@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"nearby-msg/api/internal/domain"
@@ -22,7 +23,7 @@ func NewDeviceService(repo *database.DeviceRepository) *DeviceService {
 // RegisterDeviceRequest represents a device registration request
 type RegisterDeviceRequest struct {
 	ID       *string `json:"id,omitempty"`       // Optional, will be generated if not provided
-	Nickname *string `json:"nickname,omitempty"` // Optional, will be auto-generated if not provided
+	Nickname *string `json:"nickname,omitempty"` // Required - user must provide nickname
 }
 
 // RegisterDeviceResponse represents a device registration response
@@ -55,11 +56,11 @@ func (s *DeviceService) RegisterDevice(ctx context.Context, req RegisterDeviceRe
 		}, nil
 	}
 
-	// Generate nickname if not provided
-	nickname := domain.GenerateRandomNickname()
-	if req.Nickname != nil {
-		nickname = *req.Nickname
+	// Nickname is required - must be provided by user
+	if req.Nickname == nil || *req.Nickname == "" {
+		return nil, errors.New("nickname is required")
 	}
+	nickname := *req.Nickname
 
 	// Validate nickname
 	if err := domain.ValidateNickname(nickname); err != nil {

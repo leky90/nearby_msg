@@ -180,3 +180,27 @@ export async function getUnreadCount(
   return unreadMessages.length;
 }
 
+/**
+ * Gets the latest message for a group
+ * @param groupId - Group ID
+ * @returns Latest message or null if no messages
+ */
+export async function getLatestMessage(groupId: string): Promise<Message | null> {
+  const db = await getDatabase();
+  const messages = await db.messages
+    .find({
+      selector: {
+        group_id: groupId,
+      },
+      sort: [{ created_at: 'desc' }],
+      limit: 1,
+    })
+    .exec();
+  
+  if (messages.length === 0) {
+    return null;
+  }
+  
+  return messages[0].toJSON() as Message;
+}
+

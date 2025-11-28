@@ -105,14 +105,14 @@ export function MessageInput({
           className="flex-1 h-12"
           aria-invalid={!!error}
           aria-describedby={error ? "message-input-error" : undefined}
-          aria-label="Message input"
+          aria-label="Nhập tin nhắn"
         />
         <Button
           onClick={handleSend}
           isDisabled={!canSend || disabled}
           size="default"
           className="h-12 min-w-12"
-          aria-label="Send message"
+          aria-label="Gửi tin nhắn"
         >
           {isSending ? (
             <Loader2 className="size-4 animate-spin" />

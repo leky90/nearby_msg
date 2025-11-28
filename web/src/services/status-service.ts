@@ -101,14 +101,6 @@ export async function fetchStatus(): Promise<UserStatus | null> {
 }
 
 /**
- * Gets current user's status (legacy function for backward compatibility)
- * @returns User status or null if not set
- */
-export async function getStatus(): Promise<UserStatus | null> {
-  return fetchStatus();
-}
-
-/**
  * Gets cached status from RxDB
  * @returns Cached status or null
  */

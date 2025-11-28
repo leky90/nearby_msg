@@ -66,24 +66,6 @@ export async function getPinnedMessages(groupId: string): Promise<PinnedMessage[
 }
 
 /**
- * Gets cached pinned messages from RxDB for a group
- * @param groupId - Group ID
- * @returns Array of cached pinned messages
- */
-export async function getCachedPinnedMessages(groupId: string): Promise<PinnedMessage[]> {
-  const db = await getDatabase();
-  const pins = await db.pinned_messages
-    .find({
-      selector: {
-        group_id: groupId,
-      },
-      sort: [{ pinned_at: 'desc' }],
-    })
-    .exec();
-  return pins.map((doc) => doc.toJSON() as PinnedMessage);
-}
-
-/**
  * Checks if a message is pinned by current device
  * @param messageId - Message ID to check
  * @returns True if pinned

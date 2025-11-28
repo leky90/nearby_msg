@@ -26,12 +26,12 @@ export interface DeviceUpdateRequest {
  */
 export function validateNickname(nickname: string): string | null {
   if (nickname.length < 1 || nickname.length > 50) {
-    return 'Nickname must be 1-50 characters';
+    return 'Tên hiển thị phải có từ 1-50 ký tự';
   }
   // Check for valid characters: alphanumeric, spaces, hyphens
   const validPattern = /^[a-zA-Z0-9\s-]+$/;
   if (!validPattern.test(nickname)) {
-    return 'Nickname can only contain letters, numbers, spaces, and hyphens';
+    return 'Tên hiển thị chỉ được chứa chữ cái, số, khoảng trắng và dấu gạch ngang';
   }
   return null;
 }

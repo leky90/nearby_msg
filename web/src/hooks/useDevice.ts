@@ -24,13 +24,18 @@ export interface UseDeviceReturn {
 /**
  * Hook for device registration and management
  * Uses TanStack Query for automatic request deduplication, caching, and retry
+ * @param enabled - Whether to enable the device query (default: true)
  * @returns Device state and registration functions
  */
-export function useDevice(): UseDeviceReturn {
+export function useDevice(enabled: boolean = true): UseDeviceReturn {
   const queryClient = useQueryClient();
-  const deviceId = getOrCreateDeviceId();
+  
+  // Only get/create device ID if enabled
+  // This prevents creating device ID before user completes onboarding
+  const deviceId = enabled ? getOrCreateDeviceId() : null;
 
   // Query for device data (reads from RxDB first, then API)
+  // Only enabled if explicitly enabled AND we have a device ID
   const {
     data: device,
     isLoading,
@@ -41,8 +46,8 @@ export function useDevice(): UseDeviceReturn {
     queryFn: fetchDevice,
     staleTime: 5 * 60 * 1000, // 5 minutes
     retry: 3,
-    // Only fetch if device doesn't exist in cache
-    enabled: !!deviceId,
+    // Only fetch if enabled AND device ID exists
+    enabled: enabled && !!deviceId,
   });
 
   // Mutation for device registration with optimistic updates
@@ -56,11 +61,12 @@ export function useDevice(): UseDeviceReturn {
       // Snapshot previous value
       const previousDevice = queryClient.getQueryData<Device | null>(['device', deviceId]);
 
-      // Optimistically update cache (if we have device ID from variables)
-      if (variables?.id || deviceId) {
+      // Optimistically update cache (if we have device ID and nickname)
+      // Only if nickname is provided (required for registration)
+      if (deviceId && variables?.nickname) {
         const optimisticDevice: Device = {
-          id: variables?.id || deviceId,
-          nickname: variables?.nickname || 'New Device',
+          id: deviceId,
+          nickname: variables.nickname,
           public_key: '',
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
@@ -74,6 +80,8 @@ export function useDevice(): UseDeviceReturn {
       // Update with server response and invalidate related queries
       queryClient.setQueryData(['device', data.device.id], data.device);
       queryClient.invalidateQueries({ queryKey: ['device'] });
+      // Refetch device to ensure UI is updated
+      queryClient.refetchQueries({ queryKey: ['device', data.device.id] });
     },
     onError: (err, _variables, context) => {
       // Rollback on error
@@ -88,7 +96,7 @@ export function useDevice(): UseDeviceReturn {
   const updateMutation = useMutation({
     mutationFn: async (request: DeviceUpdateRequest) => {
       if (!device) {
-        throw new Error('Device not registered');
+        throw new Error('Thiết bị chưa được đăng ký');
       }
       return updateDeviceNickname(request.nickname);
     },
