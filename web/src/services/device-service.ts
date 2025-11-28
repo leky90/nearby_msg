@@ -107,7 +107,7 @@ export async function registerDeviceMutation(
  */
 export async function updateDeviceNickname(nickname: string): Promise<Device> {
   const deviceId = getOrCreateDeviceId();
-  await patch<Device>(`/device?id=${deviceId}`, { nickname });
+  await patch<Device>(`/device/?id=${deviceId}`, { nickname });
 
   // Update in RxDB
   const db = await getDatabase();

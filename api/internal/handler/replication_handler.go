@@ -2,6 +2,8 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"sync"
 	"time"
@@ -65,6 +67,7 @@ func (h *ReplicationHandler) Push(w http.ResponseWriter, r *http.Request) {
 }
 
 // Pull handles POST /replicate/pull
+// Supports both legacy format (messages-only) and new format (multi-collection)
 func (h *ReplicationHandler) Pull(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -78,13 +81,66 @@ func (h *ReplicationHandler) Pull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req service.PullMessagesRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	// Read body bytes (can only read once)
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+	r.Body.Close()
+
+	// Decode to detect format
+	var rawReq map[string]interface{}
+	if err := json.Unmarshal(bodyBytes, &rawReq); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	resp, err := h.replicationService.PullMessages(ctx, deviceID, req)
+	// Detect request format: new format has "collections" field
+	_, hasCollections := rawReq["collections"]
+
+	// If collections not provided, default to legacy format (messages only)
+	if !hasCollections {
+		// Legacy format: messages only
+		var legacyReq service.PullMessagesRequest
+		if err := json.Unmarshal(bodyBytes, &legacyReq); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		resp, err := h.replicationService.PullMessages(ctx, deviceID, legacyReq)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+		return
+	}
+
+	// New format: multi-collection
+	var req service.PullDocumentsRequest
+	if err := json.Unmarshal(bodyBytes, &req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Validate collections
+	if len(req.Collections) == 0 {
+		http.Error(w, "collections array cannot be empty", http.StatusBadRequest)
+		return
+	}
+
+	// Validate each collection name
+	for _, collection := range req.Collections {
+		if !service.ValidCollections[collection] {
+			http.Error(w, fmt.Sprintf("invalid collection: %s", collection), http.StatusBadRequest)
+			return
+		}
+	}
+
+	resp, err := h.replicationService.PullDocuments(ctx, deviceID, req)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

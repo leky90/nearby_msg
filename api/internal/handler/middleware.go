@@ -88,4 +88,3 @@ func WriteJSON(w http.ResponseWriter, statusCode int, data interface{}) {
 		log.Printf("Failed to encode JSON response: %v", err)
 	}
 }
-

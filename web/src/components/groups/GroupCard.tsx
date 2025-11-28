@@ -47,10 +47,14 @@ function formatDistance(distance: number): string {
  */
 function getGroupTypeLabel(type: Group["type"]): string {
   const labels: Record<Group["type"], string> = {
-    neighborhood: t("group.type.neighborhood"),
+    village: t("group.type.village"),
+    hamlet: t("group.type.hamlet"),
+    residential_group: t("group.type.residential_group"),
+    street_block: t("group.type.street_block"),
     ward: t("group.type.ward"),
-    district: t("group.type.district"),
+    commune: t("group.type.commune"),
     apartment: t("group.type.apartment"),
+    residential_area: t("group.type.residential_area"),
     other: t("group.type.other"),
   };
   return labels[type] || type;
@@ -98,7 +102,9 @@ export function GroupCard({
     >
       <CardHeader>
         <div className="flex items-start justify-between gap-2">
-          <CardTitle className="text-heading-2 leading-heading-2">{group.name}</CardTitle>
+          <CardTitle className="text-heading-2 leading-heading-2">
+            {group.name}
+          </CardTitle>
           <div className="flex items-center gap-2">
             <Badge variant="secondary">{getGroupTypeLabel(group.type)}</Badge>
             {onFavoriteToggle && (
@@ -107,7 +113,9 @@ export function GroupCard({
                 size="sm"
                 onClick={handleFavoriteClick}
                 className="h-8 w-8 p-0"
-                aria-label={isFavorited ? t("button.unfavorite") : t("button.favorite")}
+                aria-label={
+                  isFavorited ? t("button.unfavorite") : t("button.favorite")
+                }
               >
                 <Star
                   className={cn(
@@ -125,13 +133,19 @@ export function GroupCard({
           {distance !== undefined && (
             <div className="flex items-center gap-1.5">
               <MapPin className="size-4" />
-              <span>{t("component.groupCard.distance", { distance: formatDistance(distance) })}</span>
+              <span>
+                {t("component.groupCard.distance", {
+                  distance: formatDistance(distance),
+                })}
+              </span>
             </div>
           )}
           {activity > 0 && (
             <div className="flex items-center gap-1.5">
               <MessageSquare className="size-4" />
-              <span>{t("component.groupCard.members", { count: activity })}</span>
+              <span>
+                {t("component.groupCard.members", { count: activity })}
+              </span>
             </div>
           )}
         </div>

@@ -51,23 +51,22 @@ export default defineConfig({
     react(),
     tailwindcss(),
     VitePWA({
-      registerType: 'autoUpdate',
+      registerType: 'prompt',
       includeAssets: ['favicon.ico', 'robots.txt', 'offline.html'],
       manifest: {
         name: 'Nearby Community Chat',
         short_name: 'Nearby Chat',
         description: 'Offline-first community chat for disaster scenarios',
         theme_color: '#ffffff',
+        background_color: '#ffffff',
+        display: 'standalone',
+        start_url: '/',
         icons: [
           {
-            src: 'pwa-192x192.png',
-            sizes: '192x192',
-            type: 'image/png'
-          },
-          {
-            src: 'pwa-512x512.png',
-            sizes: '512x512',
-            type: 'image/png'
+            src: 'vite.svg',
+            sizes: 'any',
+            type: 'image/svg+xml',
+            purpose: 'any maskable'
           }
         ]
       },
@@ -75,8 +74,7 @@ export default defineConfig({
         // Precaching: Cache app shell and static assets
         globPatterns: [
           '**/*.{js,css,html,ico,png,svg,woff,woff2,ttf,eot}',
-          'index.html',
-          'manifest.json'
+          'index.html'
         ],
         // Precache strategy: CacheFirst for static assets
         navigateFallback: '/index.html',
@@ -84,11 +82,29 @@ export default defineConfig({
         // Runtime caching strategies
         runtimeCaching: [
           {
-            // API requests: NetworkFirst with fallback to cache
-            urlPattern: /^https:\/\/api\./,
+            // Local API requests (via proxy): NetworkFirst with fallback to cache
+            urlPattern: ({ url }) => {
+              return url.pathname.startsWith('/api/') || url.pathname.startsWith('/v1/');
+            },
             handler: 'NetworkFirst',
             options: {
               cacheName: 'api-cache',
+              networkTimeoutSeconds: 10,
+              cacheableResponse: {
+                statuses: [0, 200]
+              },
+              expiration: {
+                maxEntries: 100,
+                maxAgeSeconds: 24 * 60 * 60 // 24 hours
+              }
+            }
+          },
+          {
+            // External API requests: NetworkFirst with fallback to cache
+            urlPattern: /^https:\/\/.*\/api\//,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'external-api-cache',
               networkTimeoutSeconds: 10,
               cacheableResponse: {
                 statuses: [0, 200]
@@ -124,6 +140,11 @@ export default defineConfig({
             }
           }
         ]
+      },
+      // Enable in dev mode for testing
+      devOptions: {
+        enabled: true,
+        type: 'module'
       }
     })
   ]

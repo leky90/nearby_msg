@@ -35,10 +35,14 @@ export function GroupCard({
   className,
 }: GroupCardProps) {
   const groupTypeLabels: Record<Group["type"], string> = {
-    neighborhood: "Xóm",
+    village: "Thôn",
+    hamlet: "Xóm",
+    residential_group: "Tổ dân phố",
+    street_block: "Khu phố",
     ward: "Phường",
-    district: "Quận",
+    commune: "Xã",
     apartment: "Chung cư",
+    residential_area: "Khu dân cư",
     other: "Khác",
   };
 
@@ -90,7 +94,7 @@ export function GroupCard({
                   ? "text-yellow-500 hover:text-yellow-600"
                   : "text-muted-foreground hover:text-foreground"
               )}
-              aria-label={isFavorited ? "Bỏ yêu thích" : "Yêu thích"}
+              aria-label={isFavorited ? "Bỏ quan tâm" : "Quan tâm"}
             >
               <svg
                 className="w-5 h-5"

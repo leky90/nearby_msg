@@ -196,6 +196,8 @@ func (h *GroupHandler) HandleGroupRoutes(w http.ResponseWriter, r *http.Request)
 	switch r.Method {
 	case http.MethodGet:
 		h.GetGroup(w, r)
+	case http.MethodPut, http.MethodPatch:
+		h.UpdateGroup(w, r)
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
@@ -396,6 +398,47 @@ func (h *GroupHandler) GetPinnedMessages(w http.ResponseWriter, r *http.Request)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(pins)
+}
+
+// UpdateGroup handles PUT/PATCH /groups/{id}
+func (h *GroupHandler) UpdateGroup(w http.ResponseWriter, r *http.Request) {
+	// Get device ID from context
+	ctx := r.Context()
+	deviceID, ok := auth.GetDeviceIDFromContext(ctx)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Extract group ID from path
+	groupID := extractGroupIDFromPath(r.URL.Path)
+	if groupID == "" {
+		http.Error(w, "Group ID required", http.StatusBadRequest)
+		return
+	}
+
+	var req service.UpdateGroupRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	group, err := h.groupService.UpdateGroup(ctx, groupID, deviceID, req)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		if strings.Contains(err.Error(), "only the creator") {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(group)
 }
 
 // extractGroupIDFromPath extracts group ID from URL path

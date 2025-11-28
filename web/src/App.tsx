@@ -5,16 +5,21 @@ import { Toaster } from "./components/ui/sonner";
 import { OnboardingScreen } from "./components/onboarding/OnboardingScreen";
 import { createAppRouter } from "./router";
 import { useDevice } from "./hooks/useDevice";
+import { useDeviceLocation } from "./hooks/useDeviceLocation";
 import { monitorStorageQuota } from "./services/storage-quota";
 import { showToast } from "./utils/toast";
 import { startReplication } from "./services/replication";
 import { getDeviceId } from "./services/device-storage";
+import { PWAUpdatePrompt } from "./components/common/PWAUpdatePrompt";
 
 const router = createAppRouter();
 
 function App() {
   const [onboardingComplete, setOnboardingComplete] = useState(false);
   const [shouldFetchDevice, setShouldFetchDevice] = useState(false);
+
+  // Sync device location from localStorage to app store
+  useDeviceLocation();
 
   // Check if device is already registered (has device ID and token)
   useEffect(() => {
@@ -102,6 +107,7 @@ function App() {
     <ErrorBoundary>
       <RouterProvider router={router} />
       <Toaster />
+      <PWAUpdatePrompt />
     </ErrorBoundary>
   );
 }

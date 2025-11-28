@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS groups (
     id VARCHAR(32) PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
-    type VARCHAR(50) NOT NULL CHECK (type IN ('neighborhood', 'ward', 'district', 'apartment', 'other')),
+    type VARCHAR(50) NOT NULL CHECK (type IN ('village', 'hamlet', 'residential_group', 'street_block', 'ward', 'commune', 'apartment', 'residential_area', 'other')),
     latitude DECIMAL(10, 6) NOT NULL CHECK (latitude >= -90 AND latitude <= 90),
     longitude DECIMAL(10, 6) NOT NULL CHECK (longitude >= -180 AND longitude <= 180),
     region_code VARCHAR(10),

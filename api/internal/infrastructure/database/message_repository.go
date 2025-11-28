@@ -191,28 +191,17 @@ func (r *MessageRepository) TrimOldMessages(ctx context.Context, groupID string,
 }
 
 // GetCheckpoint returns the last checkpoint for a device and collection.
+// This method is kept for backward compatibility but now uses ReplicationRepository internally.
 func (r *MessageRepository) GetCheckpoint(ctx context.Context, deviceID string) (time.Time, error) {
-	query := `
-		SELECT checkpoint
-		FROM replication_checkpoints
-		WHERE device_id = $1 AND collection = $2
-	`
-	var checkpoint time.Time
-	err := r.pool.QueryRow(ctx, query, deviceID, checkpointCollection).Scan(&checkpoint)
-	if err != nil {
-		return time.Time{}, err
-	}
-	return checkpoint, nil
+	// Create a temporary ReplicationRepository to use the generic method
+	replicationRepo := NewReplicationRepository(r.pool)
+	return replicationRepo.GetCheckpoint(ctx, deviceID, checkpointCollection)
 }
 
 // UpsertCheckpoint updates the last checkpoint for a device and collection.
+// This method is kept for backward compatibility but now uses ReplicationRepository internally.
 func (r *MessageRepository) UpsertCheckpoint(ctx context.Context, deviceID string, checkpoint time.Time) error {
-	query := `
-		INSERT INTO replication_checkpoints (device_id, collection, checkpoint)
-		VALUES ($1, $2, $3)
-		ON CONFLICT (device_id, collection)
-		DO UPDATE SET checkpoint = EXCLUDED.checkpoint
-	`
-	_, err := r.pool.Exec(ctx, query, deviceID, checkpointCollection, checkpoint)
-	return err
+	// Create a temporary ReplicationRepository to use the generic method
+	replicationRepo := NewReplicationRepository(r.pool)
+	return replicationRepo.UpsertCheckpoint(ctx, deviceID, checkpointCollection, checkpoint)
 }

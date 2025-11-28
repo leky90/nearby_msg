@@ -12,6 +12,7 @@ import { useUserStatus } from "@/hooks/useUserStatus";
 import { BottomNavigation } from "@/components/navigation/BottomNavigation";
 import { TopNavigation } from "@/components/navigation/TopNavigation";
 import { RadiusFilterFAB } from "@/components/navigation/RadiusFilterFAB";
+import { CreateGroupFAB } from "@/components/navigation/CreateGroupFAB";
 import { ExploreFeed } from "@/components/feed/ExploreFeed";
 import { FollowingFeed } from "@/components/feed/FollowingFeed";
 import { SOSView } from "@/components/sos/SOSView";
@@ -64,7 +65,10 @@ export function Home() {
       case "following":
         return (
           <ErrorBoundary>
-            <FollowingFeed onGroupSelect={handleGroupSelect} className="h-full" />
+            <FollowingFeed
+              onGroupSelect={handleGroupSelect}
+              className="h-full"
+            />
           </ErrorBoundary>
         );
       case "explore":
@@ -126,6 +130,16 @@ export function Home() {
 
       {/* Bottom Navigation - Fixed at bottom */}
       <BottomNavigation />
+
+      {/* Create Group FAB - Show on Explore and Following tabs */}
+      {(activeTab === "explore" || activeTab === "following") && (
+        <CreateGroupFAB
+          onGroupCreated={(_group) => {
+            // Don't auto-navigate to the newly created group
+            // User can manually select it from the list
+          }}
+        />
+      )}
 
       {/* Radius Filter FAB - Only show on Explore tab */}
       {activeTab === "explore" && (

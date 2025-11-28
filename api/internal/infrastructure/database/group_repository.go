@@ -197,3 +197,62 @@ func (r *GroupRepository) GetByCreatorDeviceID(ctx context.Context, deviceID str
 	group.RegionCode = regionCode
 	return &group, nil
 }
+
+// UpdateName updates the name of a group
+func (r *GroupRepository) UpdateName(ctx context.Context, id string, name string) error {
+	query := `
+		UPDATE groups
+		SET name = $1, updated_at = $2
+		WHERE id = $3
+	`
+	now := time.Now()
+	result, err := r.pool.Exec(ctx, query, name, now, id)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return errors.New("group not found")
+	}
+	return nil
+}
+
+// GetGroupsAfter retrieves groups updated after a given timestamp
+func (r *GroupRepository) GetGroupsAfter(ctx context.Context, since time.Time, limit int) ([]*domain.Group, error) {
+	query := `
+		SELECT id, name, type, latitude, longitude, region_code, creator_device_id, created_at, updated_at
+		FROM groups
+		WHERE updated_at > $1
+		ORDER BY updated_at ASC
+		LIMIT $2
+	`
+	rows, err := r.pool.Query(ctx, query, since, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var groups []*domain.Group
+	for rows.Next() {
+		var group domain.Group
+		var groupType string
+		var regionCode *string
+		if err := rows.Scan(
+			&group.ID,
+			&group.Name,
+			&groupType,
+			&group.Latitude,
+			&group.Longitude,
+			&regionCode,
+			&group.CreatorDeviceID,
+			&group.CreatedAt,
+			&group.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		group.Type = domain.GroupType(groupType)
+		group.RegionCode = regionCode
+		groups = append(groups, &group)
+	}
+
+	return groups, rows.Err()
+}

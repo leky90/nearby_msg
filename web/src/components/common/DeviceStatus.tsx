@@ -4,16 +4,22 @@
  */
 
 import { useState, useEffect } from "react";
-import { Battery, BatteryCharging, MapPin, MapPinOff } from "lucide-react";
+import {
+  Battery,
+  BatteryCharging,
+  MapPin,
+  MapPinOff,
+  Copy,
+  Check,
+} from "lucide-react";
 import { Badge } from "../ui/badge";
 import { cn } from "@/lib/utils";
+import { useAppStore } from "@/stores/app-store";
+import { copyCoordinates } from "@/utils/copy-coordinates";
 import {
   getBatteryStatus,
-  getGPSStatus,
   subscribeToBatteryStatus,
-  subscribeToGPSStatus,
   type BatteryStatus,
-  type GPSStatus,
 } from "@/services/device-status";
 
 export interface DeviceStatusProps {
@@ -25,27 +31,25 @@ export interface DeviceStatusProps {
 
 /**
  * Device Status component
- * Shows battery level and GPS permission status
+ * Shows battery level and GPS location status (based on whether location is configured)
  */
 export function DeviceStatus({
   className = "",
   showLabels = true,
 }: DeviceStatusProps) {
+  const { deviceLocation } = useAppStore();
   const [battery, setBattery] = useState<BatteryStatus | null>(null);
-  const [gpsStatus, setGPSStatus] = useState<GPSStatus>("prompt");
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     // Initial load
     getBatteryStatus().then(setBattery);
-    getGPSStatus().then(setGPSStatus);
 
-    // Subscribe to changes
+    // Subscribe to battery changes
     const cleanupBattery = subscribeToBatteryStatus(setBattery);
-    const cleanupGPS = subscribeToGPSStatus(setGPSStatus);
 
     return () => {
       cleanupBattery();
-      cleanupGPS();
     };
   }, []);
 
@@ -89,35 +93,32 @@ export function DeviceStatus({
   };
 
   const getGPSIcon = () => {
-    if (gpsStatus === "granted") {
+    if (deviceLocation) {
       return <MapPin className="w-3.5 h-3.5" />;
     }
     return <MapPinOff className="w-3.5 h-3.5" />;
   };
 
   const getGPSColor = () => {
-    switch (gpsStatus) {
-      case "granted":
-        return "text-safety font-semibold";
-      case "denied":
-        return "text-destructive font-semibold";
-      case "prompt":
-        return "text-warning font-semibold";
-      default:
-        return "text-muted-foreground/70 font-semibold";
+    if (deviceLocation) {
+      return "text-safety font-semibold";
     }
+    return "text-muted-foreground/70 font-semibold";
   };
 
   const getGPSLabel = () => {
-    switch (gpsStatus) {
-      case "granted":
-        return "GPS";
-      case "denied":
-        return "GPS";
-      case "prompt":
-        return "GPS";
-      default:
-        return "GPS";
+    if (deviceLocation) {
+      // Show coordinates if location is set
+      return `${deviceLocation.latitude.toFixed(4)}, ${deviceLocation.longitude.toFixed(4)}`;
+    }
+    return "GPS";
+  };
+
+  const handleCopyCoordinates = async () => {
+    if (deviceLocation) {
+      await copyCoordinates(deviceLocation.latitude, deviceLocation.longitude);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     }
   };
 
@@ -148,12 +149,25 @@ export function DeviceStatus({
           "flex items-center gap-1 px-2 py-0.5",
           "bg-background/80 border-border/70 backdrop-blur-sm",
           getGPSColor(),
-          "shadow-sm"
+          "shadow-sm",
+          deviceLocation &&
+            "cursor-pointer hover:bg-background/90 transition-colors"
         )}
+        onClick={deviceLocation ? handleCopyCoordinates : undefined}
+        title={deviceLocation ? "Click để copy tọa độ" : undefined}
       >
         {getGPSIcon()}
         {showLabels && (
           <span className="text-xs font-semibold">{getGPSLabel()}</span>
+        )}
+        {deviceLocation && (
+          <div className="ml-0.5">
+            {copied ? (
+              <Check className="w-3 h-3 text-safety" />
+            ) : (
+              <Copy className="w-3 h-3 text-muted-foreground/70" />
+            )}
+          </div>
         )}
       </Badge>
     </div>

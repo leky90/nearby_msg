@@ -41,10 +41,14 @@ function formatDistance(meters: number): string {
  */
 function getGroupTypeLabel(type: Group["type"]): string {
   const labels: Record<Group["type"], string> = {
-    neighborhood: t("group.type.neighborhood"),
+    village: t("group.type.village"),
+    hamlet: t("group.type.hamlet"),
+    residential_group: t("group.type.residential_group"),
+    street_block: t("group.type.street_block"),
     ward: t("group.type.ward"),
-    district: t("group.type.district"),
+    commune: t("group.type.commune"),
     apartment: t("group.type.apartment"),
+    residential_area: t("group.type.residential_area"),
     other: t("group.type.other"),
   };
   return labels[type] || type;

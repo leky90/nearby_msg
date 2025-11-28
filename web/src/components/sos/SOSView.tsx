@@ -4,6 +4,7 @@ import { createSOSMessage, checkSOSCooldown } from "@/services/message-service";
 import { getOrCreateDeviceId } from "@/services/device-storage";
 import { discoverNearbyGroups } from "@/services/group-service";
 import { getCurrentLocation } from "@/services/location-service";
+import { useAppStore } from "@/stores/app-store";
 import { cn } from "@/lib/utils";
 import type { SOSType } from "@/domain/message";
 import { showToast } from "@/utils/toast";
@@ -46,11 +47,22 @@ export function SOSView() {
     preventDefault: false,
   });
 
+  const { deviceLocation } = useAppStore();
+
   useEffect(() => {
     // Find nearest group when view mounts
     const findNearestGroup = async () => {
       try {
-        const location = await getCurrentLocation();
+        // Prefer deviceLocation from store, fallback to GPS
+        let location = deviceLocation
+          ? {
+              latitude: deviceLocation.latitude,
+              longitude: deviceLocation.longitude,
+              accuracy: undefined,
+              timestamp: Date.now(),
+            }
+          : await getCurrentLocation();
+
         if (location) {
           const result = await discoverNearbyGroups({
             latitude: location.latitude,
@@ -63,7 +75,7 @@ export function SOSView() {
             setError("Không tìm thấy nhóm nào gần bạn để gửi SOS.");
           }
         } else {
-          setError("Không thể lấy vị trí hiện tại. Vui lòng bật GPS.");
+          setError("Không thể lấy vị trí hiện tại. Vui lòng cài đặt vị trí.");
         }
       } catch (err) {
         console.error("Failed to find nearest group:", err);
@@ -71,7 +83,7 @@ export function SOSView() {
       }
     };
     findNearestGroup();
-  }, []);
+  }, [deviceLocation]);
 
   useEffect(() => {
     if (!isHolding || !holdStartTime) {
@@ -134,7 +146,8 @@ export function SOSView() {
           return;
         }
 
-        const actionLabel = quickActions.find((a) => a.type === type)?.label || "Cần giúp đỡ";
+        const actionLabel =
+          quickActions.find((a) => a.type === type)?.label || "Cần giúp đỡ";
         await createSOSMessage(
           nearestGroupId,
           type,
@@ -187,103 +200,105 @@ export function SOSView() {
   );
 
   return (
-    <div
-      {...swipeHandlers.handlers}
-      className={cn(
-        "h-full w-full",
-        "bg-sos/95 backdrop-blur-sm",
-        "flex flex-col items-center justify-center",
-        "p-4 sm:p-6"
-      )}
-    >
-      {/* Error Message */}
-      {error && (
-        <div className="absolute top-16 left-4 right-4 bg-white text-destructive px-4 py-2 rounded-lg text-sm text-center shadow-lg">
-          {error}
+    <div className="h-full w-full flex flex-col">
+      <div
+        {...swipeHandlers.handlers}
+        className={cn(
+          "flex-1 w-full",
+          "bg-sos/95 backdrop-blur-sm",
+          "flex flex-col items-center justify-center",
+          "p-4 sm:p-6"
+        )}
+      >
+        {/* Error Message */}
+        {error && (
+          <div className="absolute top-16 left-4 right-4 bg-white text-destructive px-4 py-2 rounded-lg text-sm text-center shadow-lg">
+            {error}
+          </div>
+        )}
+
+        {/* Quick Action Buttons */}
+        <div className="flex gap-2 sm:gap-4 mb-4 sm:mb-8">
+          {quickActions.map((action) => {
+            const Icon = action.icon;
+            return (
+              <button
+                key={action.type}
+                onClick={() => handleQuickAction(action.type)}
+                disabled={isSending || !nearestGroupId}
+                className={cn(
+                  "bg-white/20 hover:bg-white/30",
+                  "rounded-full p-3 sm:p-4 text-white",
+                  "transition-all active:scale-95",
+                  "disabled:opacity-50 disabled:cursor-not-allowed",
+                  "flex flex-col items-center gap-1 sm:gap-2",
+                  "min-w-[80px] sm:min-w-[100px]"
+                )}
+                aria-label={action.label}
+              >
+                <Icon className="w-6 h-6 sm:w-8 sm:h-8" />
+                <span className="text-xs sm:text-sm">{action.label}</span>
+              </button>
+            );
+          })}
         </div>
-      )}
 
-      {/* Quick Action Buttons */}
-      <div className="flex gap-2 sm:gap-4 mb-4 sm:mb-8">
-        {quickActions.map((action) => {
-          const Icon = action.icon;
-          return (
-            <button
-              key={action.type}
-              onClick={() => handleQuickAction(action.type)}
-              disabled={isSending || !nearestGroupId}
-              className={cn(
-                "bg-white/20 hover:bg-white/30",
-                "rounded-full p-3 sm:p-4 text-white",
-                "transition-all active:scale-95",
-                "disabled:opacity-50 disabled:cursor-not-allowed",
-                "flex flex-col items-center gap-1 sm:gap-2",
-                "min-w-[80px] sm:min-w-[100px]"
-              )}
-              aria-label={action.label}
-            >
-              <Icon className="w-6 h-6 sm:w-8 sm:h-8" />
-              <span className="text-xs sm:text-sm">{action.label}</span>
-            </button>
-          );
-        })}
-      </div>
+        {/* Main Hold Button */}
+        <div className="flex flex-col items-center gap-4">
+          <button
+            onMouseDown={handleHoldStart}
+            onMouseUp={handleHoldEnd}
+            onMouseLeave={handleHoldEnd}
+            onTouchStart={handleHoldStart}
+            onTouchEnd={handleHoldEnd}
+            disabled={isSending || !nearestGroupId}
+            className={cn(
+              "relative w-28 h-28 sm:w-32 sm:h-32 rounded-full",
+              "bg-white text-sos",
+              "flex items-center justify-center",
+              "font-bold text-base sm:text-lg",
+              "transition-transform active:scale-95",
+              "disabled:opacity-50 disabled:cursor-not-allowed",
+              "shadow-2xl"
+            )}
+            aria-label="Giữ để gửi SOS"
+          >
+            {/* Progress Ring */}
+            <svg className="absolute inset-0 w-full h-full transform -rotate-90">
+              <circle
+                cx="50%"
+                cy="50%"
+                r="45%"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="4"
+                strokeDasharray={`${2 * Math.PI * 45}%`}
+                strokeDashoffset={`${2 * Math.PI * 45 * (1 - holdProgress / 100)}%`}
+                className="text-white/30"
+              />
+              <circle
+                cx="50%"
+                cy="50%"
+                r="45%"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="4"
+                strokeDasharray={`${2 * Math.PI * 45}%`}
+                strokeDashoffset={`${2 * Math.PI * 45 * (1 - holdProgress / 100)}%`}
+                className="text-white transition-all duration-75"
+              />
+            </svg>
 
-      {/* Main Hold Button */}
-      <div className="flex flex-col items-center gap-4">
-        <button
-          onMouseDown={handleHoldStart}
-          onMouseUp={handleHoldEnd}
-          onMouseLeave={handleHoldEnd}
-          onTouchStart={handleHoldStart}
-          onTouchEnd={handleHoldEnd}
-          disabled={isSending || !nearestGroupId}
-          className={cn(
-            "relative w-28 h-28 sm:w-32 sm:h-32 rounded-full",
-            "bg-white text-sos",
-            "flex items-center justify-center",
-            "font-bold text-base sm:text-lg",
-            "transition-transform active:scale-95",
-            "disabled:opacity-50 disabled:cursor-not-allowed",
-            "shadow-2xl"
-          )}
-              aria-label="Giữ để gửi SOS"
-        >
-          {/* Progress Ring */}
-          <svg className="absolute inset-0 w-full h-full transform -rotate-90">
-            <circle
-              cx="50%"
-              cy="50%"
-              r="45%"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="4"
-              strokeDasharray={`${2 * Math.PI * 45}%`}
-              strokeDashoffset={`${2 * Math.PI * 45 * (1 - holdProgress / 100)}%`}
-              className="text-white/30"
-            />
-            <circle
-              cx="50%"
-              cy="50%"
-              r="45%"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="4"
-              strokeDasharray={`${2 * Math.PI * 45}%`}
-              strokeDashoffset={`${2 * Math.PI * 45 * (1 - holdProgress / 100)}%`}
-              className="text-white transition-all duration-75"
-            />
-          </svg>
+            {/* Button Text */}
+            <span className="relative z-10 text-center px-2">
+              {isSending ? "Đang gửi..." : "Giữ 3s"}
+            </span>
+          </button>
 
-          {/* Button Text */}
-          <span className="relative z-10 text-center px-2">
-            {isSending ? "Đang gửi..." : "Giữ 3s"}
-          </span>
-        </button>
-
-        <p className="text-white/80 text-sm text-center max-w-xs">
-          Giữ nút trong 3 giây để gửi SOS khẩn cấp
-        </p>
+          <p className="text-white/80 text-sm text-center max-w-xs">
+            Giữ nút trong 3 giây để gửi SOS khẩn cấp
+          </p>
+        </div>
       </div>
     </div>
   );

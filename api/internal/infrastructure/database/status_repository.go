@@ -121,3 +121,41 @@ func (r *StatusRepository) GetGroupStatusSummary(ctx context.Context, groupID st
 	}
 	return &summary, nil
 }
+
+// GetStatusesAfter retrieves user statuses updated after a given timestamp for a device
+func (r *StatusRepository) GetStatusesAfter(ctx context.Context, deviceID string, since time.Time, limit int) ([]*domain.UserStatus, error) {
+	query := `
+		SELECT id, device_id, status_type, description, created_at, updated_at
+		FROM user_status
+		WHERE device_id = $1 AND updated_at > $2
+		ORDER BY updated_at ASC
+		LIMIT $3
+	`
+	rows, err := r.pool.Query(ctx, query, deviceID, since, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var statuses []*domain.UserStatus
+	for rows.Next() {
+		var status domain.UserStatus
+		var statusType string
+		var description *string
+		if err := rows.Scan(
+			&status.ID,
+			&status.DeviceID,
+			&statusType,
+			&description,
+			&status.CreatedAt,
+			&status.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		status.StatusType = domain.StatusType(statusType)
+		status.Description = description
+		statuses = append(statuses, &status)
+	}
+
+	return statuses, rows.Err()
+}

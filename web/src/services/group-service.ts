@@ -5,7 +5,7 @@
 
 import type { Group, NearbyGroupsRequest, NearbyGroupsResponse } from '../domain/group';
 import { calculateDistance } from '../domain/group';
-import { get, post } from './api';
+import { get, post, put } from './api';
 import { getDatabase } from './db';
 
 /**
@@ -93,7 +93,8 @@ export async function createGroup(group: {
  */
 export async function getGroup(groupId: string): Promise<Group | null> {
   try {
-    const response = await get<Group>(`/groups?id=${groupId}`);
+    // Use path parameter instead of query parameter: /groups/{id}
+    const response = await get<Group>(`/groups/${groupId}`);
 
     // Store in RxDB
     const db = await getDatabase();
@@ -134,9 +135,25 @@ export async function suggestGroupNameAndType(
   } catch {
     // Fallback to default suggestion
     return {
-      suggested_name: 'Community Group',
-      suggested_type: 'neighborhood',
+      suggested_name: '',
+      suggested_type: 'village',
     };
   }
+}
+
+/**
+ * Updates a group's name
+ * @param groupId - Group ID
+ * @param name - New name
+ * @returns Updated group
+ */
+export async function updateGroupName(groupId: string, name: string): Promise<Group> {
+  const response = await put<Group>(`/groups/${groupId}`, { name });
+
+  // Update in RxDB
+  const db = await getDatabase();
+  await db.groups.upsert(response);
+
+  return response;
 }
 

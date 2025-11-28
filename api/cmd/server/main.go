@@ -53,12 +53,21 @@ func main() {
 	favoriteRepo := database.NewFavoriteRepository(dbPool)
 	statusRepo := database.NewStatusRepository(dbPool)
 	pinRepo := database.NewPinRepository(dbPool)
+	replicationRepo := database.NewReplicationRepository(dbPool)
 
 	// Initialize services
 	deviceService := service.NewDeviceService(deviceRepo)
 	groupService := service.NewGroupService(groupRepo)
 	messageService := service.NewMessageService(messageRepo)
-	replicationService := service.NewReplicationService(messageRepo, messageService)
+	replicationService := service.NewReplicationService(
+		messageRepo,
+		groupRepo,
+		favoriteRepo,
+		pinRepo,
+		statusRepo,
+		replicationRepo,
+		messageService,
+	)
 	favoriteService := service.NewFavoriteService(favoriteRepo)
 	statusService := service.NewStatusService(statusRepo)
 	pinService := service.NewPinService(pinRepo, messageRepo)
@@ -199,9 +208,9 @@ func runMigrations(ctx context.Context, pool *database.Pool) error {
 		if _, err := pool.Exec(ctx, string(migrationSQL)); err != nil {
 			// Ignore errors for existing objects (tables, indexes, triggers, functions)
 			errStr := err.Error()
-			if strings.Contains(errStr, "already exists") || 
-			   strings.Contains(errStr, "duplicate") ||
-			   strings.Contains(errStr, "SQLSTATE 42710") {
+			if strings.Contains(errStr, "already exists") ||
+				strings.Contains(errStr, "duplicate") ||
+				strings.Contains(errStr, "SQLSTATE 42710") {
 				log.Printf("Migration %s: objects already exist, skipping", filename)
 				continue
 			}

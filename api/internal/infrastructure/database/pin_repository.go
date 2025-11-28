@@ -121,3 +121,38 @@ func (r *PinRepository) GetByDeviceAndMessage(ctx context.Context, deviceID, mes
 	return &pin, nil
 }
 
+// GetPinsAfter retrieves pinned messages pinned after a given timestamp for a device
+func (r *PinRepository) GetPinsAfter(ctx context.Context, deviceID string, since time.Time, limit int) ([]*domain.PinnedMessage, error) {
+	query := `
+		SELECT id, message_id, group_id, device_id, pinned_at, tag
+		FROM pinned_messages
+		WHERE device_id = $1 AND pinned_at > $2
+		ORDER BY pinned_at ASC
+		LIMIT $3
+	`
+	rows, err := r.pool.Query(ctx, query, deviceID, since, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var pins []*domain.PinnedMessage
+	for rows.Next() {
+		var pin domain.PinnedMessage
+		var tag *string
+		if err := rows.Scan(
+			&pin.ID,
+			&pin.MessageID,
+			&pin.GroupID,
+			&pin.DeviceID,
+			&pin.PinnedAt,
+			&tag,
+		); err != nil {
+			return nil, err
+		}
+		pin.Tag = tag
+		pins = append(pins, &pin)
+	}
+
+	return pins, rows.Err()
+}

@@ -150,4 +150,3 @@ func extractMessageIDFromPath(path string) string {
 	}
 	return ""
 }
-

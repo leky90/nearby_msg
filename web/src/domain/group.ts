@@ -3,7 +3,16 @@
  * Represents a community chat room for a geographic area
  */
 
-export type GroupType = 'neighborhood' | 'ward' | 'district' | 'apartment' | 'other';
+export type GroupType = 
+  | 'village'           // Thôn
+  | 'hamlet'           // Xóm
+  | 'residential_group' // Tổ dân phố
+  | 'street_block'     // Khu phố
+  | 'ward'             // Phường
+  | 'commune'          // Xã
+  | 'apartment'        // Chung cư
+  | 'residential_area' // Khu dân cư
+  | 'other';           // Khác
 
 export type RadiusOption = 500 | 1000 | 2000;
 
@@ -44,7 +53,17 @@ export interface NearbyGroupsResponse {
  * @returns True if valid
  */
 export function isValidGroupType(type: string): type is GroupType {
-  return ['neighborhood', 'ward', 'district', 'apartment', 'other'].includes(type);
+  return [
+    'village',
+    'hamlet',
+    'residential_group',
+    'street_block',
+    'ward',
+    'commune',
+    'apartment',
+    'residential_area',
+    'other'
+  ].includes(type);
 }
 
 /**

@@ -35,10 +35,18 @@ export interface CreateGroupFormProps {
 }
 
 const getGroupTypes = (): Array<{ value: Group["type"]; label: string }> => [
-  { value: "neighborhood", label: t("group.type.neighborhood") },
+  // Cấp nhỏ nhất - đặt lên đầu
+  { value: "village", label: t("group.type.village") },
+  { value: "hamlet", label: t("group.type.hamlet") },
+  { value: "residential_group", label: t("group.type.residential_group") },
+  { value: "street_block", label: t("group.type.street_block") },
+  // Cấp xã/phường
   { value: "ward", label: t("group.type.ward") },
-  { value: "district", label: t("group.type.district") },
+  { value: "commune", label: t("group.type.commune") },
+  // Khu vực đặc biệt
   { value: "apartment", label: t("group.type.apartment") },
+  { value: "residential_area", label: t("group.type.residential_area") },
+  // Khác
   { value: "other", label: t("group.type.other") },
 ];
 
@@ -52,7 +60,7 @@ export function CreateGroupForm({
   className = "",
 }: CreateGroupFormProps) {
   const [name, setName] = useState("");
-  const [type, setType] = useState<Group["type"]>("neighborhood");
+  const [type, setType] = useState<Group["type"]>("village");
   const GROUP_TYPES = getGroupTypes();
   const [latitude, setLatitude] = useState<number | null>(null);
   const [longitude, setLongitude] = useState<number | null>(null);
@@ -207,6 +215,28 @@ export function CreateGroupForm({
       )}
 
       <div className="space-y-2">
+        <Label htmlFor="group-type">
+          {t("component.createGroupForm.groupType")}
+        </Label>
+        <Select
+          value={type}
+          onValueChange={(value) => setType(value as Group["type"])}
+          disabled={isLoading || isLoadingSuggestion}
+        >
+          <SelectTrigger id="group-type">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {GROUP_TYPES.map((gt) => (
+              <SelectItem key={gt.value} value={gt.value}>
+                {gt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-2">
         <Label htmlFor="group-name">
           {t("component.createGroupForm.groupName")}
         </Label>
@@ -247,28 +277,6 @@ export function CreateGroupForm({
             })}
           </p>
         )}
-      </div>
-
-      <div className="space-y-2">
-        <Label htmlFor="group-type">
-          {t("component.createGroupForm.groupType")}
-        </Label>
-        <Select
-          value={type}
-          onValueChange={(value) => setType(value as Group["type"])}
-          disabled={isLoading || isLoadingSuggestion}
-        >
-          <SelectTrigger id="group-type">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {GROUP_TYPES.map((gt) => (
-              <SelectItem key={gt.value} value={gt.value}>
-                {gt.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
       </div>
 
       <div className="space-y-2">

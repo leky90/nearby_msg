@@ -13,6 +13,7 @@ REST API for offline-first community chat PWA for disaster scenarios. Enables lo
 Most endpoints require JWT Bearer token authentication. The token is obtained when registering a device.
 
 **Header Format:**
+
 ```
 Authorization: Bearer <jwt_token>
 ```
@@ -26,6 +27,7 @@ Authorization: Bearer <jwt_token>
 Check if the server is running.
 
 **Response:**
+
 - `200 OK` - Server is healthy
 
 ---
@@ -39,6 +41,7 @@ Check if the server is running.
 Register a new device or retrieve existing device information. Device ID should persist across app reinstalls.
 
 **Request Body:**
+
 ```json
 {
   "device_id": "string (optional, UUID)",
@@ -47,6 +50,7 @@ Register a new device or retrieve existing device information. Device ID should 
 ```
 
 **Response:**
+
 ```json
 {
   "id": "uuid",
@@ -58,6 +62,7 @@ Register a new device or retrieve existing device information. Device ID should 
 ```
 
 **Status Codes:**
+
 - `200 OK` - Device registered or retrieved
 - `400 Bad Request` - Invalid request
 - `500 Internal Server Error` - Server error
@@ -69,9 +74,11 @@ Register a new device or retrieve existing device information. Device ID should 
 Get device information.
 
 **Parameters:**
+
 - `device_id` (path, required) - Device UUID
 
 **Response:**
+
 ```json
 {
   "id": "uuid",
@@ -83,6 +90,7 @@ Get device information.
 ```
 
 **Status Codes:**
+
 - `200 OK` - Device found
 - `404 Not Found` - Device not found
 
@@ -93,9 +101,11 @@ Get device information.
 Update device nickname.
 
 **Parameters:**
+
 - `device_id` (path, required) - Device UUID
 
 **Request Body:**
+
 ```json
 {
   "nickname": "string (required, 1-50 chars)"
@@ -103,6 +113,7 @@ Update device nickname.
 ```
 
 **Response:**
+
 ```json
 {
   "id": "uuid",
@@ -114,6 +125,7 @@ Update device nickname.
 ```
 
 **Status Codes:**
+
 - `200 OK` - Device updated
 - `400 Bad Request` - Invalid request
 - `404 Not Found` - Device not found
@@ -131,10 +143,11 @@ Create a new community group. Each device can create maximum one group.
 **Authentication:** Required
 
 **Request Body:**
+
 ```json
 {
   "name": "string (required, 1-100 chars)",
-  "type": "neighborhood | ward | district | apartment | other",
+  "type": "village | hamlet | residential_group | street_block | ward | commune | apartment | residential_area | other",
   "latitude": "number (required, -90 to 90)",
   "longitude": "number (required, -180 to 180)",
   "region_code": "string (optional, 2-10 chars)"
@@ -142,6 +155,7 @@ Create a new community group. Each device can create maximum one group.
 ```
 
 **Response:**
+
 ```json
 {
   "id": "uuid",
@@ -157,6 +171,7 @@ Create a new community group. Each device can create maximum one group.
 ```
 
 **Status Codes:**
+
 - `201 Created` - Group created
 - `400 Bad Request` - Invalid request
 - `409 Conflict` - Device has already created a group
@@ -169,12 +184,14 @@ Create a new community group. Each device can create maximum one group.
 Find groups within specified radius from given location. Returns groups sorted by distance (nearest first).
 
 **Query Parameters:**
+
 - `latitude` (required) - Latitude (-90 to 90)
 - `longitude` (required) - Longitude (-180 to 180)
 - `radius` (required) - Radius in meters: `500`, `1000`, or `2000`
 - `limit` (optional) - Maximum results (default: 50, max: 100)
 
 **Response:**
+
 ```json
 {
   "groups": [
@@ -192,6 +209,7 @@ Find groups within specified radius from given location. Returns groups sorted b
 ```
 
 **Status Codes:**
+
 - `200 OK` - Success
 - `400 Bad Request` - Invalid parameters
 
@@ -202,9 +220,11 @@ Find groups within specified radius from given location. Returns groups sorted b
 Get group information.
 
 **Parameters:**
+
 - `group_id` (path, required) - Group UUID
 
 **Response:**
+
 ```json
 {
   "id": "uuid",
@@ -220,6 +240,7 @@ Get group information.
 ```
 
 **Status Codes:**
+
 - `200 OK` - Group found
 - `404 Not Found` - Group not found
 
@@ -230,18 +251,21 @@ Get group information.
 Get suggested group name and type based on location.
 
 **Query Parameters:**
+
 - `latitude` (required) - Latitude
 - `longitude` (required) - Longitude
 
 **Response:**
+
 ```json
 {
   "suggested_name": "string",
-  "suggested_type": "neighborhood | ward | district | apartment | other"
+  "suggested_type": "village | hamlet | residential_group | street_block | ward | commune | apartment | residential_area | other"
 }
 ```
 
 **Status Codes:**
+
 - `200 OK` - Success
 - `400 Bad Request` - Invalid parameters
 
@@ -258,9 +282,11 @@ Mark a group as favorite.
 **Authentication:** Required
 
 **Parameters:**
+
 - `group_id` (path, required) - Group UUID
 
 **Response:**
+
 ```json
 {
   "id": "uuid",
@@ -271,6 +297,7 @@ Mark a group as favorite.
 ```
 
 **Status Codes:**
+
 - `201 Created` - Group favorited
 - `400 Bad Request` - Invalid request
 - `404 Not Found` - Group not found
@@ -284,9 +311,11 @@ Unfavorite a group.
 **Authentication:** Required
 
 **Parameters:**
+
 - `group_id` (path, required) - Group UUID
 
 **Status Codes:**
+
 - `204 No Content` - Group unfavorited
 - `404 Not Found` - Group not found
 
@@ -305,6 +334,7 @@ Send pending changes from client to server. Accepts batch of messages.
 **Rate Limit:** 10 messages per minute per device
 
 **Request Body:**
+
 ```json
 {
   "device_id": "uuid",
@@ -324,9 +354,11 @@ Send pending changes from client to server. Accepts batch of messages.
 ```
 
 **Response:**
+
 - `204 No Content` - Messages pushed successfully
 
 **Status Codes:**
+
 - `204 No Content` - Success
 - `400 Bad Request` - Invalid request
 - `429 Too Many Requests` - Rate limit exceeded
@@ -340,6 +372,7 @@ Request new documents from server since last checkpoint.
 **Authentication:** Required
 
 **Request Body:**
+
 ```json
 {
   "checkpoint": "string (optional, last checkpoint from previous pull)",
@@ -349,6 +382,7 @@ Request new documents from server since last checkpoint.
 ```
 
 **Response:**
+
 ```json
 {
   "documents": [
@@ -363,6 +397,7 @@ Request new documents from server since last checkpoint.
 ```
 
 **Status Codes:**
+
 - `200 OK` - Success
 - `400 Bad Request` - Invalid request
 
@@ -379,9 +414,11 @@ Pin a message in a group.
 **Authentication:** Required
 
 **Parameters:**
+
 - `message_id` (path, required) - Message UUID
 
 **Request Body:**
+
 ```json
 {
   "tag": "string (optional, 1-50 chars)"
@@ -389,6 +426,7 @@ Pin a message in a group.
 ```
 
 **Response:**
+
 ```json
 {
   "id": "uuid",
@@ -401,6 +439,7 @@ Pin a message in a group.
 ```
 
 **Status Codes:**
+
 - `201 Created` - Message pinned
 - `400 Bad Request` - Invalid request
 - `404 Not Found` - Message not found
@@ -414,9 +453,11 @@ Unpin a message.
 **Authentication:** Required
 
 **Parameters:**
+
 - `message_id` (path, required) - Message UUID
 
 **Status Codes:**
+
 - `204 No Content` - Message unpinned
 - `404 Not Found` - Message not found
 
@@ -429,9 +470,11 @@ Get all pinned messages for a group.
 **Authentication:** Required
 
 **Parameters:**
+
 - `group_id` (path, required) - Group UUID
 
 **Response:**
+
 ```json
 {
   "pinned_messages": [
@@ -448,6 +491,7 @@ Get all pinned messages for a group.
 ```
 
 **Status Codes:**
+
 - `200 OK` - Success
 - `404 Not Found` - Group not found
 
@@ -464,6 +508,7 @@ Update user's safety status.
 **Authentication:** Required
 
 **Request Body:**
+
 ```json
 {
   "status_type": "safe | need_help | cannot_contact",
@@ -472,6 +517,7 @@ Update user's safety status.
 ```
 
 **Response:**
+
 ```json
 {
   "id": "uuid",
@@ -484,6 +530,7 @@ Update user's safety status.
 ```
 
 **Status Codes:**
+
 - `200 OK` - Status updated
 - `400 Bad Request` - Invalid request
 
@@ -496,6 +543,7 @@ Get user's current safety status.
 **Authentication:** Required
 
 **Response:**
+
 ```json
 {
   "id": "uuid",
@@ -508,19 +556,9 @@ Get user's current safety status.
 ```
 
 **Status Codes:**
+
 - `200 OK` - Status found
 - `404 Not Found` - No status set
-
-### Clear Status
-
-**DELETE** `/v1/status`
-
-Clear user's safety status.
-
-**Authentication:** Required
-
-**Status Codes:**
-- `204 No Content` - Status cleared
 
 ### Get Group Status Summary
 
@@ -531,9 +569,11 @@ Get status summary for a group (count of users by status type).
 **Authentication:** Required
 
 **Parameters:**
+
 - `group_id` (path, required) - Group UUID
 
 **Response:**
+
 ```json
 {
   "safe": "integer",
@@ -543,6 +583,7 @@ Get status summary for a group (count of users by status type).
 ```
 
 **Status Codes:**
+
 - `200 OK` - Success
 - `404 Not Found` - Group not found
 
@@ -551,6 +592,7 @@ Get status summary for a group (count of users by status type).
 ## Data Models
 
 ### Device
+
 ```json
 {
   "id": "uuid",
@@ -562,11 +604,12 @@ Get status summary for a group (count of users by status type).
 ```
 
 ### Group
+
 ```json
 {
   "id": "uuid",
   "name": "string (1-100 chars)",
-  "type": "neighborhood | ward | district | apartment | other",
+  "type": "village | hamlet | residential_group | street_block | ward | commune | apartment | residential_area | other",
   "latitude": "number (-90 to 90)",
   "longitude": "number (-180 to 180)",
   "region_code": "string | null (2-10 chars)",
@@ -577,6 +620,7 @@ Get status summary for a group (count of users by status type).
 ```
 
 ### Message
+
 ```json
 {
   "id": "uuid",
@@ -593,6 +637,7 @@ Get status summary for a group (count of users by status type).
 ```
 
 ### FavoriteGroup
+
 ```json
 {
   "id": "uuid",
@@ -603,6 +648,7 @@ Get status summary for a group (count of users by status type).
 ```
 
 ### PinnedMessage
+
 ```json
 {
   "id": "uuid",
@@ -615,6 +661,7 @@ Get status summary for a group (count of users by status type).
 ```
 
 ### UserStatus
+
 ```json
 {
   "id": "uuid",
@@ -627,6 +674,7 @@ Get status summary for a group (count of users by status type).
 ```
 
 ### Error
+
 ```json
 {
   "error": "string",
@@ -657,6 +705,7 @@ All errors follow a consistent format:
 ```
 
 **Common HTTP Status Codes:**
+
 - `200 OK` - Success
 - `201 Created` - Resource created
 - `204 No Content` - Success (no response body)
@@ -672,6 +721,7 @@ All errors follow a consistent format:
 ## OpenAPI Specification
 
 The complete OpenAPI 3.0 specification is available at:
+
 - **Source:** `specs/001-nearby-msg/contracts/openapi.yaml`
 - **View online:** Use tools like Swagger UI or Redoc to view the interactive documentation
 
@@ -732,4 +782,3 @@ curl -X PUT http://localhost:8080/v1/status \
 ## Support
 
 For API support, see the main project documentation or contact the development team.
-

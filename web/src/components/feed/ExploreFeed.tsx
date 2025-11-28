@@ -1,17 +1,27 @@
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useRef } from "react";
+import { useNavigate } from "react-router-dom";
+import { useNavigationStore } from "@/stores/navigation-store";
+import { useAppStore } from "@/stores/app-store";
 import { cn } from "@/lib/utils";
-import { discoverNearbyGroups } from "@/services/group-service";
+import { discoverNearbyGroups, getGroup } from "@/services/group-service";
 import { getCurrentLocation } from "@/services/location-service";
 import { getLatestMessage, getUnreadCount } from "@/services/message-service";
-import { isFavorited } from "@/services/favorite-service";
-import { GroupCard } from "./GroupCard";
+import {
+  isFavorited,
+  addFavorite,
+  removeFavorite,
+} from "@/services/favorite-service";
+import { GroupListItem } from "./GroupListItem";
 import { FeedErrorState } from "./FeedErrorState";
 import { FeedLoadingState } from "./FeedLoadingState";
 import { FeedEmptyState } from "./FeedEmptyState";
+import { CreateGroupView } from "@/components/groups/CreateGroupView";
 import { formatDistance } from "@/utils/distance";
 import type { RadiusOption } from "@/domain/group";
+import { showToast } from "@/utils/toast";
 
 interface ExploreFeedProps {
   radius: RadiusOption;
@@ -25,24 +35,45 @@ export function ExploreFeed({
   className,
 }: ExploreFeedProps) {
   const parentRef = useRef<HTMLDivElement>(null);
+  const [showCreateGroup, setShowCreateGroup] = useState(false);
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const { setActiveTab } = useNavigationStore();
 
-  // Get user location
+  const { deviceLocation } = useAppStore();
+
+  // Get user location - prefer app store, fallback to GPS
   const {
-    data: location,
+    data: gpsLocation,
     isLoading: isLoadingLocation,
     error: locationError,
+    refetch: refetchLocation,
   } = useQuery({
     queryKey: ["location"],
     queryFn: getCurrentLocation,
     staleTime: 5 * 60 * 1000, // 5 minutes
     retry: 2,
+    enabled: !deviceLocation, // Only fetch if no location in store
   });
+
+  // Use deviceLocation from store if available, otherwise use GPS location
+  const location = deviceLocation
+    ? {
+        latitude: deviceLocation.latitude,
+        longitude: deviceLocation.longitude,
+        accuracy: undefined,
+        timestamp: deviceLocation.updatedAt
+          ? new Date(deviceLocation.updatedAt).getTime()
+          : Date.now(),
+      }
+    : gpsLocation;
 
   // Fetch nearby groups
   const {
     data: groupsData,
     isLoading: isLoadingGroups,
     error: groupsError,
+    refetch: refetchGroups,
   } = useQuery({
     queryKey: [
       "nearby-groups",
@@ -69,19 +100,31 @@ export function ExploreFeed({
   const distances = groupsData?.distances || [];
 
   // Fetch additional data for each group (latest message, unread count, favorite status)
+  // Also refetch group data to ensure we have latest group info (including name updates)
   const groupDetailsQueries = useQuery({
-    queryKey: ["group-details", groups.map((g) => g.id)],
+    queryKey: [
+      "group-details",
+      groups
+        .map((g) => g.id)
+        .sort()
+        .join(","),
+    ],
     queryFn: async () => {
       const details = await Promise.all(
         groups.map(async (group, index) => {
+          // Fetch fresh group data to ensure we have latest name
+          const freshGroup = await getGroup(group.id).catch(() => null);
+          // Use fresh group if available, otherwise fallback to cached group
+          const currentGroup: Group = freshGroup ?? group;
+
           const [latestMessage, unreadCount, favorited] = await Promise.all([
-            getLatestMessage(group.id).catch(() => null),
-            getUnreadCount(group.id).catch(() => 0),
-            isFavorited(group.id).catch(() => false),
+            getLatestMessage(currentGroup.id).catch(() => null),
+            getUnreadCount(currentGroup.id).catch(() => 0),
+            isFavorited(currentGroup.id).catch(() => false),
           ]);
 
           return {
-            group,
+            group: currentGroup, // Use fresh group data if available
             distance: distances[index],
             latestMessagePreview: latestMessage?.content
               ? latestMessage.content.substring(0, 50) +
@@ -105,19 +148,58 @@ export function ExploreFeed({
   const virtualizer = useVirtualizer({
     count: groupDetails.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 500, // Estimated card height
-    overscan: 3,
+    estimateSize: () => 100, // Estimated list item height
+    overscan: 5,
   });
 
   const isLoading =
     isLoadingLocation || isLoadingGroups || groupDetailsQueries.isLoading;
+
+  const handleRefresh = () => {
+    if (locationError || (!location && !isLoadingLocation)) {
+      void refetchLocation();
+    }
+    if (groupsError) {
+      void refetchGroups();
+      queryClient.invalidateQueries({ queryKey: ["group-details"] });
+    }
+  };
+
+  const handleBack = () => {
+    navigate("/");
+    setActiveTab("explore");
+  };
+
+  const handleFavoriteToggle = async (
+    groupId: string,
+    shouldFavorite: boolean
+  ) => {
+    try {
+      if (shouldFavorite) {
+        await addFavorite(groupId);
+      } else {
+        await removeFavorite(groupId);
+      }
+      // Invalidate queries to refresh UI
+      await queryClient.invalidateQueries({ queryKey: ["group-details"] });
+      await queryClient.invalidateQueries({ queryKey: ["favorites"] });
+      await queryClient.invalidateQueries({ queryKey: ["favorite-groups"] });
+      await queryClient.invalidateQueries({ queryKey: ["nearby-groups"] });
+    } catch (error) {
+      console.error("Failed to toggle favorite:", error);
+      showToast("Không thể cập nhật trạng thái quan tâm", "error");
+    }
+  };
 
   // Error state: GPS unavailable
   if (locationError || (!location && !isLoadingLocation)) {
     return (
       <FeedErrorState
         title="Không thể lấy vị trí của bạn"
-        message="Vui lòng bật GPS và cấp quyền truy cập vị trí"
+        message="Vui lòng bật GPS và cấp quyền truy cập vị trí để tìm các nhóm khu vực gần bạn trong tình huống khẩn cấp"
+        onRefresh={handleRefresh}
+        onBack={handleBack}
+        isGPSError={true}
       />
     );
   }
@@ -127,20 +209,38 @@ export function ExploreFeed({
     return (
       <FeedErrorState
         title="Không thể tải danh sách nhóm"
-        message="Kiểm tra kết nối mạng của bạn"
+        message="Kiểm tra kết nối mạng của bạn để cập nhật thông tin khẩn cấp"
+        onRefresh={handleRefresh}
+        onBack={handleBack}
       />
     );
   }
 
   if (isLoading) {
-    return <FeedLoadingState />;
+    return <FeedLoadingState onBack={handleBack} />;
+  }
+
+  // Show create group view if user clicked create button
+  if (showCreateGroup) {
+    return (
+      <CreateGroupView
+        onGroupCreated={(_group) => {
+          setShowCreateGroup(false);
+          // Don't auto-navigate to the newly created group
+          // User can manually select it from the list
+        }}
+        onCancel={() => setShowCreateGroup(false)}
+      />
+    );
   }
 
   if (groups.length === 0) {
     return (
       <FeedEmptyState
         title={`Không tìm thấy nhóm nào trong bán kính ${radius}m`}
-        message="Thử mở rộng bán kính tìm kiếm"
+        message="Tạo nhóm theo khu vực để chia sẻ thông tin khẩn cấp và hỗ trợ lẫn nhau"
+        showCreateButton={true}
+        onCreateClick={() => setShowCreateGroup(true)}
       />
     );
   }
@@ -175,7 +275,6 @@ export function ExploreFeed({
             latestMessagePreview,
             unreadCount,
             isFavorited,
-            activeMemberCount,
           } = detail;
 
           return (
@@ -190,17 +289,19 @@ export function ExploreFeed({
                 height: `${virtualItem.size}px`,
                 transform: `translateY(${virtualItem.start}px)`,
               }}
-              className="px-2 sm:px-4 py-2"
+              className="px-2 sm:px-4 py-1.5"
             >
-              <GroupCard
+              <GroupListItem
                 group={group}
                 distance={distance}
                 distanceDisplay={formatDistance(distance)}
                 latestMessagePreview={latestMessagePreview}
-                activeMemberCount={activeMemberCount}
                 isFavorited={isFavorited}
                 unreadCount={unreadCount}
                 onClick={() => onGroupSelect(group.id)}
+                onFavoriteToggle={(newIsFavorited) =>
+                  handleFavoriteToggle(group.id, newIsFavorited)
+                }
               />
             </div>
           );

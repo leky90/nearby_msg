@@ -141,6 +141,43 @@ func (s *GroupService) GetGroup(ctx context.Context, groupID string) (*domain.Gr
 	return group, nil
 }
 
+// UpdateGroupRequest represents a group update request
+type UpdateGroupRequest struct {
+	Name string `json:"name"`
+}
+
+// UpdateGroup updates a group (only name for now)
+func (s *GroupService) UpdateGroup(ctx context.Context, groupID string, deviceID string, req UpdateGroupRequest) (*domain.Group, error) {
+	// Get the group first
+	group, err := s.repo.GetByID(ctx, groupID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get group: %w", err)
+	}
+
+	// Check if the device is the creator
+	if group.CreatorDeviceID != deviceID {
+		return nil, fmt.Errorf("only the creator can update the group")
+	}
+
+	// Validate new name
+	if len(req.Name) < 1 || len(req.Name) > 100 {
+		return nil, domain.ErrInvalidGroupName
+	}
+
+	// Update the name
+	if err := s.repo.UpdateName(ctx, groupID, req.Name); err != nil {
+		return nil, fmt.Errorf("failed to update group: %w", err)
+	}
+
+	// Return updated group
+	updatedGroup, err := s.repo.GetByID(ctx, groupID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get updated group: %w", err)
+	}
+
+	return updatedGroup, nil
+}
+
 // GroupSuggestionRequest represents a request for group name/type suggestions
 type GroupSuggestionRequest struct {
 	Latitude  float64 `json:"latitude"`
@@ -202,7 +239,7 @@ func (s *GroupService) SuggestGroupNameAndType(ctx context.Context, req GroupSug
 	// In production, use reverse geocoding to get actual location name
 	return &GroupSuggestionResponse{
 		SuggestedName: "Community Group",
-		SuggestedType: domain.GroupTypeNeighborhood,
+		SuggestedType: domain.GroupTypeVillage,
 	}, nil
 }
 
@@ -215,11 +252,15 @@ func generateGroupName(groupType domain.GroupType, lat, lon float64) string {
 	lonStr := fmt.Sprintf("%.4f", lon)
 
 	typeLabel := map[domain.GroupType]string{
-		domain.GroupTypeNeighborhood: "Neighborhood",
-		domain.GroupTypeWard:         "Ward",
-		domain.GroupTypeDistrict:     "District",
-		domain.GroupTypeApartment:    "Apartment",
-		domain.GroupTypeOther:        "Community",
+		domain.GroupTypeVillage:          "Village",
+		domain.GroupTypeHamlet:           "Hamlet",
+		domain.GroupTypeResidentialGroup: "Residential Group",
+		domain.GroupTypeStreetBlock:      "Street Block",
+		domain.GroupTypeWard:             "Ward",
+		domain.GroupTypeCommune:          "Commune",
+		domain.GroupTypeApartment:        "Apartment",
+		domain.GroupTypeResidentialArea:  "Residential Area",
+		domain.GroupTypeOther:            "Community",
 	}
 
 	label := typeLabel[groupType]

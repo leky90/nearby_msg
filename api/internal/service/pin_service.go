@@ -90,4 +90,3 @@ func (s *PinService) IsPinned(ctx context.Context, deviceID, messageID string) (
 	}
 	return pin != nil, nil
 }
-

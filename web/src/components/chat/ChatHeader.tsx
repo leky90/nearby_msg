@@ -1,47 +1,48 @@
 /**
  * Chat Header Component
- * Header for group chat with group info, SOS button, and sync status
+ * Compact header with essential information only
  */
 
-import { Users, Wifi, WifiOff, Loader2, Star, Pin } from "lucide-react";
-import { useState, useEffect } from "react";
+import { Star, ArrowLeft } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
+import { useNavigationStore } from "@/stores/navigation-store";
 import type { Group } from "../../domain/group";
-import { SOSButton } from "../common/SOSButton";
-import { Avatar, AvatarFallback } from "../ui/avatar";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { cn } from "@/lib/utils";
-import { getDatabase } from "../../services/db";
 import { isFavorited } from "../../services/favorite-service";
 import { getGroupStatusSummary } from "../../services/status-service";
+import { getOrCreateDeviceId } from "../../services/device-storage";
 import { StatusSummary } from "../groups/StatusSummary";
-import { PinnedMessagesModal } from "./PinnedMessagesModal";
+import { GroupNameEditor } from "./GroupNameEditor";
+import { SyncStatusIndicator } from "./SyncStatusIndicator";
 import { t } from "@/lib/i18n";
 
 export interface ChatHeaderProps {
   /** Group information */
   group: Group;
-  /** Callback when SOS is sent */
-  onSOSSent?: () => void;
   /** Callback when favorite is toggled */
   onFavoriteToggle?: (isFavorited: boolean) => void;
-  /** Callback when a pinned message is clicked (for navigation) */
-  onPinnedMessageClick?: (messageId: string) => void;
+  /** Callback when group is updated */
+  onGroupUpdated?: (group: Group) => void;
   /** Custom className */
   className?: string;
 }
-
-type SyncStatus = "online" | "offline" | "syncing" | "pending";
 
 /**
  * Gets group type label
  */
 function getGroupTypeLabel(type: Group["type"]): string {
   const labels: Record<Group["type"], string> = {
-    neighborhood: t("group.type.neighborhood"),
+    village: t("group.type.village"),
+    hamlet: t("group.type.hamlet"),
+    residential_group: t("group.type.residential_group"),
+    street_block: t("group.type.street_block"),
     ward: t("group.type.ward"),
-    district: t("group.type.district"),
+    commune: t("group.type.commune"),
     apartment: t("group.type.apartment"),
+    residential_area: t("group.type.residential_area"),
     other: t("group.type.other"),
   };
   return labels[type] || type;
@@ -49,27 +50,49 @@ function getGroupTypeLabel(type: Group["type"]): string {
 
 /**
  * Chat Header component
- * Displays group information, SOS button, and sync status indicator
+ * Compact header with essential information only
  */
 export function ChatHeader({
   group,
-  onSOSSent,
   onFavoriteToggle,
-  onPinnedMessageClick,
+  onGroupUpdated,
   className,
 }: ChatHeaderProps) {
-  const [syncStatus, setSyncStatus] = useState<SyncStatus>("online");
-  const [pendingCount, setPendingCount] = useState(0);
+  const navigate = useNavigate();
+  const { setActiveTab, setCurrentChatGroupId } = useNavigationStore();
   const [favorited, setFavorited] = useState(false);
-  const [pinnedModalOpen, setPinnedModalOpen] = useState(false);
+  const [isCreator, setIsCreator] = useState(false);
   const [statusSummary, setStatusSummary] = useState<{
     safe_count: number;
     need_help_count: number;
     cannot_contact_count: number;
     total_count: number;
   } | null>(null);
+  const statusSummaryLoadingRef = useRef(false);
 
-  // Check favorite status on mount
+  const handleBack = () => {
+    setCurrentChatGroupId(null);
+    setActiveTab("explore");
+    navigate("/");
+  };
+
+  // Check if current device is the creator
+  // Only the owner (device_id matches creator_device_id) can edit
+  useEffect(() => {
+    const checkCreator = async () => {
+      try {
+        const deviceId = getOrCreateDeviceId();
+        const isOwner = group.creator_device_id === deviceId;
+        setIsCreator(isOwner);
+      } catch (err) {
+        console.error("Failed to check creator status:", err);
+        setIsCreator(false);
+      }
+    };
+    void checkCreator();
+  }, [group.creator_device_id, group.id]);
+
+  // Check favorite status on mount and when group changes
   useEffect(() => {
     const checkFavorite = async () => {
       try {
@@ -82,152 +105,110 @@ export function ChatHeader({
     void checkFavorite();
   }, [group.id]);
 
+  // Update favorited state when callback is triggered
+  // This ensures UI updates immediately even if API call is in progress
+  const handleFavoriteClick = async () => {
+    const newFavorited = !favorited;
+    setFavorited(newFavorited); // Optimistic update
+    try {
+      await onFavoriteToggle?.(newFavorited);
+    } catch (err) {
+      // Revert on error
+      setFavorited(!newFavorited);
+      throw err;
+    }
+  };
+
   // Load status summary
   useEffect(() => {
+    let isMounted = true;
+
     const loadStatusSummary = async () => {
+      // Skip if already loading
+      if (statusSummaryLoadingRef.current) {
+        return;
+      }
+
+      statusSummaryLoadingRef.current = true;
       try {
         const summary = await getGroupStatusSummary(group.id);
-        setStatusSummary(summary);
+        // Only update state if component is still mounted
+        if (isMounted) {
+          setStatusSummary(summary);
+        }
       } catch (err) {
         console.error("Failed to load status summary:", err);
+      } finally {
+        statusSummaryLoadingRef.current = false;
       }
     };
 
     void loadStatusSummary();
+
     // Refresh every 10 seconds
-    const interval = setInterval(loadStatusSummary, 10000);
-    return () => clearInterval(interval);
-  }, [group.id]);
+    const interval = setInterval(() => {
+      void loadStatusSummary();
+    }, 10000);
 
-  // Check sync status periodically
-  useEffect(() => {
-    const checkSyncStatus = async () => {
-      const isOnline = navigator.onLine;
-      if (!isOnline) {
-        setSyncStatus("offline");
-        return;
-      }
-
-      try {
-        const db = await getDatabase();
-        const pending = await db.messages
-          .find({
-            selector: {
-              group_id: group.id,
-              sync_status: { $ne: "synced" },
-            },
-          })
-          .exec();
-
-        const count = pending.length;
-        setPendingCount(count);
-
-        if (count > 0) {
-          // Check if any are currently syncing
-          const syncing = pending.some((doc) => {
-            const data = doc.toJSON();
-            return data.sync_status === "syncing";
-          });
-          setSyncStatus(syncing ? "syncing" : "pending");
-        } else {
-          setSyncStatus("online");
-        }
-      } catch (err) {
-        console.error("Failed to check sync status:", err);
-        setSyncStatus("offline");
-      }
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+      statusSummaryLoadingRef.current = false;
     };
-
-    checkSyncStatus();
-    const interval = setInterval(checkSyncStatus, 2000);
-    return () => clearInterval(interval);
   }, [group.id]);
-
-  const getSyncIcon = () => {
-    switch (syncStatus) {
-      case "offline":
-        return <WifiOff className="size-4 text-muted-semantic" />;
-      case "syncing":
-        return <Loader2 className="size-4 animate-spin text-info" />;
-      case "pending":
-        return <WifiOff className="size-4 text-warning" />;
-      default:
-        return <Wifi className="size-4 text-safety" />;
-    }
-  };
-
-  const getSyncLabel = () => {
-    switch (syncStatus) {
-      case "offline":
-        return t("component.chatHeader.offline");
-      case "syncing":
-        return t("component.chatHeader.syncing");
-      case "pending":
-        return t("component.chatHeader.pending", { count: pendingCount });
-      default:
-        return t("component.chatHeader.synced");
-    }
-  };
 
   return (
     <header
       className={cn(
-        "flex items-center justify-between border-b bg-background px-4 py-3",
+        "flex items-center justify-between border-b bg-background px-3 py-2",
         className
       )}
     >
-      <div className="flex items-center gap-3">
-        <Avatar>
-          <AvatarFallback>
-            <Users className="size-4" />
-          </AvatarFallback>
-        </Avatar>
-        <div className="flex flex-col">
-          <h2 className="text-heading-2 font-semibold leading-heading-2">{group.name}</h2>
-          <div className="flex items-center gap-2">
-            <Badge variant="secondary" className="w-fit text-xs">
-              {getGroupTypeLabel(group.type)}
-            </Badge>
-            <div
-              className={cn(
-                "flex items-center gap-1 text-xs",
-                syncStatus === "offline" && "text-muted-semantic",
-                syncStatus === "pending" && "text-warning",
-                syncStatus === "syncing" && "text-info",
-                syncStatus === "online" && "text-safety"
-              )}
-              title={getSyncLabel()}
-            >
-              {getSyncIcon()}
-              <span className="hidden sm:inline">{getSyncLabel()}</span>
-            </div>
-          </div>
-        </div>
-        {statusSummary && statusSummary.total_count > 0 && (
-          <div className="mt-2">
-            <StatusSummary summary={statusSummary} />
-          </div>
-        )}
-      </div>
-      <div className="flex items-center gap-2">
+      {/* Left: Back button, Group info */}
+      <div className="flex items-center gap-2 min-w-0 flex-1">
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => setPinnedModalOpen(true)}
-          aria-label={t("component.chatHeader.viewPinnedMessages")}
+          onClick={handleBack}
+          className="h-8 w-8 p-0 shrink-0"
+          aria-label="Trở về"
         >
-          <Pin className="size-4" />
+          <ArrowLeft className="size-4" />
         </Button>
+
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <div className="flex flex-col min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <Badge
+                variant="secondary"
+                className="text-[10px] px-1.5 py-0 shrink-0"
+              >
+                {getGroupTypeLabel(group.type)}
+              </Badge>
+              <GroupNameEditor
+                group={group}
+                isCreator={isCreator}
+                onGroupUpdated={onGroupUpdated}
+              />
+            </div>
+            <SyncStatusIndicator groupId={group.id} />
+          </div>
+        </div>
+      </div>
+
+      {/* Right: Action buttons */}
+      <div className="flex items-center gap-1 shrink-0">
         {onFavoriteToggle && (
           <Button
             variant="ghost"
             size="sm"
-            onClick={async () => {
-              const newFavorited = !favorited;
-              setFavorited(newFavorited);
-              onFavoriteToggle(newFavorited);
-            }}
-            aria-label={favorited ? t("component.chatHeader.unfavoriteGroup") : t("component.chatHeader.favoriteGroup")}
+            onClick={handleFavoriteClick}
+            className="h-8 w-8 p-0"
+            aria-label={
+              favorited
+                ? t("component.chatHeader.unfavoriteGroup")
+                : t("component.chatHeader.favoriteGroup")
+            }
           >
             <Star
               className={cn(
@@ -237,21 +218,14 @@ export function ChatHeader({
             />
           </Button>
         )}
-        <SOSButton
-          groupId={group.id}
-          variant="destructive"
-          size="sm"
-          onSOSSent={onSOSSent}
-        />
       </div>
-      <PinnedMessagesModal
-        groupId={group.id}
-        open={pinnedModalOpen}
-        onOpenChange={setPinnedModalOpen}
-        onMessageClick={(message) => {
-          onPinnedMessageClick?.(message.id);
-        }}
-      />
+
+      {/* Status summary - show as tooltip or compact badge if needed */}
+      {statusSummary && statusSummary.total_count > 0 && (
+        <div className="hidden sm:block ml-2">
+          <StatusSummary summary={statusSummary} />
+        </div>
+      )}
     </header>
   );
 }

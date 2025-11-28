@@ -116,3 +116,35 @@ func (r *FavoriteRepository) GetByDeviceAndGroup(ctx context.Context, deviceID, 
 	}
 	return &favorite, nil
 }
+
+// GetFavoritesAfter retrieves favorite groups created after a given timestamp for a device
+func (r *FavoriteRepository) GetFavoritesAfter(ctx context.Context, deviceID string, since time.Time, limit int) ([]*domain.FavoriteGroup, error) {
+	query := `
+		SELECT id, device_id, group_id, created_at
+		FROM favorite_groups
+		WHERE device_id = $1 AND created_at > $2
+		ORDER BY created_at ASC
+		LIMIT $3
+	`
+	rows, err := r.pool.Query(ctx, query, deviceID, since, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var favorites []*domain.FavoriteGroup
+	for rows.Next() {
+		var favorite domain.FavoriteGroup
+		if err := rows.Scan(
+			&favorite.ID,
+			&favorite.DeviceID,
+			&favorite.GroupID,
+			&favorite.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		favorites = append(favorites, &favorite)
+	}
+
+	return favorites, rows.Err()
+}

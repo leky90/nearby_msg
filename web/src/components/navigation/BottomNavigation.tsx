@@ -82,9 +82,8 @@ export function BottomNavigation() {
                 "flex-1 h-full min-w-0 px-1",
                 "transition-all duration-200",
                 "active:scale-95",
-                (isActive || (isUserTab && activeTab === "status"))
+                isActive || (isUserTab && activeTab === "status")
                   ? cn(
-                      tab.activeColor,
                       "font-semibold",
                       tab.id === "sos" && "bg-sos/15 shadow-sm",
                       tab.id === "following" && "bg-yellow/15 shadow-sm",
@@ -92,7 +91,7 @@ export function BottomNavigation() {
                       tab.id === "user" && "bg-safety/15 shadow-sm",
                       "rounded-t-lg"
                     )
-                  : cn(tab.inactiveColor, "hover:text-foreground/90")
+                  : ""
               )}
               aria-label={tab.label}
               aria-current={isActive ? "page" : undefined}
@@ -102,6 +101,7 @@ export function BottomNavigation() {
                   <Icon
                     className={cn(
                       "w-5 h-5 sm:w-6 sm:h-6 transition-transform",
+                      tab.activeColor,
                       isActive && "scale-125"
                     )}
                   />
@@ -117,11 +117,17 @@ export function BottomNavigation() {
                 <Icon
                   className={cn(
                     "w-5 h-5 sm:w-6 sm:h-6 transition-transform",
+                    tab.activeColor,
                     isActive && "scale-125"
                   )}
                 />
               )}
-              <span className="text-[10px] sm:text-xs leading-tight truncate max-w-full">
+              <span
+                className={cn(
+                  "text-[10px] sm:text-xs leading-tight truncate max-w-full",
+                  tab.activeColor
+                )}
+              >
                 {tab.label}
               </span>
             </button>

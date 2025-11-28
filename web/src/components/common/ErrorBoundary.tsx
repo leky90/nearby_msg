@@ -7,7 +7,6 @@ import { Component, type ReactNode } from "react";
 import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
 import { Button } from "../ui/button";
 import { AlertCircle } from "lucide-react";
-import { t } from "@/lib/i18n";
 
 export interface ErrorBoundaryProps {
   /** Child components */
@@ -68,15 +67,15 @@ export class ErrorBoundary extends Component<
         <div className="flex min-h-screen items-center justify-center p-4">
           <Alert variant="destructive" className="max-w-md">
             <AlertCircle className="h-4 w-4" />
-            <AlertTitle>{t("error.unknown")}</AlertTitle>
+            <AlertTitle>Đã xảy ra lỗi</AlertTitle>
             <AlertDescription className="mt-2">
               <p className="mb-4">
-                {t("error.unknown")}
+                Đã xảy ra lỗi. Vui lòng thử làm mới trang.
               </p>
               {import.meta.env.DEV && this.state.error && (
                 <details className="mt-2">
                   <summary className="cursor-pointer text-sm font-medium">
-                    {t("error.unknown")}
+                    Chi tiết lỗi
                   </summary>
                   <pre className="mt-2 overflow-auto rounded bg-muted p-2 text-xs">
                     {this.state.error.toString()}
@@ -86,14 +85,14 @@ export class ErrorBoundary extends Component<
               )}
               <div className="mt-4 flex gap-2">
                 <Button onClick={this.handleReset} variant="outline" size="sm">
-                  {t("common.tryAgain") || t("button.back")}
+                  Thử lại
                 </Button>
                 <Button
                   onClick={() => window.location.reload()}
                   variant="default"
                   size="sm"
                 >
-                  {t("common.refresh") || t("button.back")}
+                  Làm mới
                 </Button>
               </div>
             </AlertDescription>

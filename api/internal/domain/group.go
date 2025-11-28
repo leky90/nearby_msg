@@ -16,11 +16,15 @@ var (
 type GroupType string
 
 const (
-	GroupTypeNeighborhood GroupType = "neighborhood"
-	GroupTypeWard         GroupType = "ward"
-	GroupTypeDistrict     GroupType = "district"
-	GroupTypeApartment    GroupType = "apartment"
-	GroupTypeOther        GroupType = "other"
+	GroupTypeVillage          GroupType = "village"
+	GroupTypeHamlet           GroupType = "hamlet"
+	GroupTypeResidentialGroup GroupType = "residential_group"
+	GroupTypeStreetBlock      GroupType = "street_block"
+	GroupTypeWard             GroupType = "ward"
+	GroupTypeCommune          GroupType = "commune"
+	GroupTypeApartment        GroupType = "apartment"
+	GroupTypeResidentialArea  GroupType = "residential_area"
+	GroupTypeOther            GroupType = "other"
 )
 
 // Group represents a community chat room for a geographic area
@@ -56,7 +60,8 @@ func (g *Group) Validate() error {
 // IsValid checks if GroupType is valid
 func (gt GroupType) IsValid() bool {
 	switch gt {
-	case GroupTypeNeighborhood, GroupTypeWard, GroupTypeDistrict, GroupTypeApartment, GroupTypeOther:
+	case GroupTypeVillage, GroupTypeHamlet, GroupTypeResidentialGroup, GroupTypeStreetBlock,
+		GroupTypeWard, GroupTypeCommune, GroupTypeApartment, GroupTypeResidentialArea, GroupTypeOther:
 		return true
 	default:
 		return false

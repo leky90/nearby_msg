@@ -83,7 +83,8 @@ export async function fetchStatus(): Promise<UserStatus | null> {
     }
     return response;
   } catch (err) {
-    // If 404 (not found) or 401 (unauthorized - device not registered yet), return cached
+    // If 404 (not found) or 401 (unauthorized - device not registered yet), return null
+    // 404 is expected when user hasn't set a status yet - don't treat as error
     // 401 is expected when device hasn't been registered - don't treat as error
     if (
       err &&
@@ -92,8 +93,10 @@ export async function fetchStatus(): Promise<UserStatus | null> {
       ((err as { status: number }).status === 404 ||
         (err as { status: number }).status === 401)
     ) {
-      // Silently fallback to cached data - this is expected behavior
-      return getCachedStatus();
+      // Silently return null - this is expected behavior
+      // 404 means user hasn't set status yet
+      // 401 means device not registered yet
+      return null;
     }
     // Only throw for unexpected errors
     throw err;

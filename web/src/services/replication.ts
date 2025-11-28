@@ -3,7 +3,7 @@
  * Coordinates foreground/background sync for messages
  */
 
-import { startMessageSync, stopMessageSync, triggerImmediateSync } from './message-sync';
+import { startMessageSync, stopMessageSync, triggerImmediateSync } from './replication-sync';
 
 const DEFAULT_VISIBILITY_SYNC_DELAY = 1000;
 
