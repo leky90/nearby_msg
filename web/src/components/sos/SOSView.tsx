@@ -54,7 +54,7 @@ export function SOSView() {
     const findNearestGroup = async () => {
       try {
         // Prefer deviceLocation from store, fallback to GPS
-        let location = deviceLocation
+        const location = deviceLocation
           ? {
               latitude: deviceLocation.latitude,
               longitude: deviceLocation.longitude,

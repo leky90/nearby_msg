@@ -3,25 +3,14 @@
  * Provides selective synchronization of specific collections
  */
 
-import { pullDocumentsFromCollections } from './replication-sync';
-
-const VALID_COLLECTIONS = [
-  'messages',
-  'groups',
-  'favorite_groups',
-  'pinned_messages',
-  'user_status',
-] as const;
-
-type Collection = (typeof VALID_COLLECTIONS)[number];
+import { pullDocuments } from './replication-sync';
+import { type Collection, isValidCollection } from './collections';
 
 /**
  * Validates that collection names are from the allowed set
  */
 function validateCollections(collections: string[]): collections is Collection[] {
-  return collections.every((c) =>
-    VALID_COLLECTIONS.includes(c as Collection)
-  );
+  return collections.every((c) => isValidCollection(c));
 }
 
 /**
@@ -33,11 +22,11 @@ export async function syncCollection(
   collection: string,
   groupIds?: string[]
 ): Promise<void> {
-  if (!VALID_COLLECTIONS.includes(collection as Collection)) {
+  if (!isValidCollection(collection)) {
     throw new Error(`Invalid collection: ${collection}`);
   }
 
-  await pullDocumentsFromCollections([collection], groupIds);
+  await pullDocuments([collection], groupIds);
 }
 
 /**
@@ -54,11 +43,9 @@ export async function syncCollections(
   }
 
   if (!validateCollections(collections)) {
-    const invalid = collections.filter(
-      (c) => !VALID_COLLECTIONS.includes(c as Collection)
-    );
+    const invalid = collections.filter((c) => !isValidCollection(c));
     throw new Error(`Invalid collections: ${invalid.join(', ')}`);
   }
 
-  await pullDocumentsFromCollections(collections, groupIds);
+  await pullDocuments(collections, groupIds);
 }

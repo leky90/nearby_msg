@@ -5,6 +5,7 @@
 
 import { NicknameSection } from "./NicknameSection";
 import { LocationSection } from "./LocationSection";
+import { DataClearSection } from "./DataClearSection";
 
 export function StatusView() {
   return (
@@ -25,6 +26,12 @@ export function StatusView() {
 
         {/* Location Section */}
         <LocationSection />
+
+        {/* Divider */}
+        <div className="border-t" />
+
+        {/* Data Clear Section */}
+        <DataClearSection />
       </div>
     </div>
   );

@@ -54,24 +54,43 @@ export function MessageList({
   const shouldVirtualize = messages.length > VIRTUALIZATION_THRESHOLD;
 
   // Load device info for all unique device IDs
+  // Only load devices that aren't already in cache to avoid unnecessary DB queries
   useEffect(() => {
     const loadDevices = async () => {
       const uniqueDeviceIds = new Set(messages.map((m) => m.device_id));
       const cache = new Map<string, Device>();
 
       for (const deviceId of uniqueDeviceIds) {
-        try {
-          const db = await getDatabase();
-          const deviceDoc = await db.devices.findOne(deviceId).exec();
-          if (deviceDoc) {
-            cache.set(deviceId, deviceDoc.toJSON() as Device);
+        // Use cached device if available
+        if (deviceCacheRef.current.has(deviceId)) {
+          cache.set(deviceId, deviceCacheRef.current.get(deviceId)!);
+        } else {
+          // Only load if not in cache
+          try {
+            const db = await getDatabase();
+            const deviceDoc = await db.devices.findOne(deviceId).exec();
+            if (deviceDoc) {
+              const device = deviceDoc.toJSON() as Device;
+              cache.set(deviceId, device);
+            }
+          } catch (err) {
+            console.error("Failed to load device:", err);
           }
-        } catch (err) {
-          console.error("Failed to load device:", err);
         }
       }
 
-      deviceCacheRef.current = cache;
+      // Only update cache if it actually changed
+      const cacheChanged =
+        cache.size !== deviceCacheRef.current.size ||
+        Array.from(cache.keys()).some((id) => {
+          const cached = cache.get(id);
+          const existing = deviceCacheRef.current.get(id);
+          return !existing || cached?.nickname !== existing?.nickname;
+        });
+
+      if (cacheChanged) {
+        deviceCacheRef.current = cache;
+      }
     };
 
     if (messages.length > 0) {
@@ -96,20 +115,36 @@ export function MessageList({
   });
 
   // Auto-scroll to bottom when new messages arrive
+  // Only scroll if user is near bottom to avoid interrupting manual scrolling
   useEffect(() => {
     if (!scrollToMessageId && groupedMessages.length > 0) {
-      if (shouldVirtualize && virtualizer) {
-        // Scroll to last item in virtualized list
-        virtualizer.scrollToIndex(groupedMessages.length - 1, {
-          align: "end",
-          behavior: "smooth",
-        });
-      } else if (parentRef.current) {
-        // Scroll to bottom in non-virtualized list
-        parentRef.current.scrollTop = parentRef.current.scrollHeight;
+      const shouldAutoScroll = () => {
+        if (!parentRef.current) return false;
+        const { scrollTop, scrollHeight, clientHeight } = parentRef.current;
+        const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+        // Only auto-scroll if user is within 150px of bottom
+        return distanceFromBottom < 150;
+      };
+
+      if (shouldAutoScroll()) {
+        if (shouldVirtualize && virtualizer) {
+          // Scroll to last item in virtualized list
+          virtualizer.scrollToIndex(groupedMessages.length - 1, {
+            align: "end",
+            behavior: "smooth",
+          });
+        } else if (parentRef.current) {
+          // Scroll to bottom in non-virtualized list
+          parentRef.current.scrollTop = parentRef.current.scrollHeight;
+        }
       }
     }
-  }, [groupedMessages, scrollToMessageId, shouldVirtualize, virtualizer]);
+  }, [
+    groupedMessages.length,
+    scrollToMessageId,
+    shouldVirtualize,
+    virtualizer,
+  ]); // Only depend on length, not full array
 
   // Scroll to specific message
   useEffect(() => {

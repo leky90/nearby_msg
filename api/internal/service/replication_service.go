@@ -94,10 +94,13 @@ type PullDocumentsRequest struct {
 }
 
 // PullDocumentsResponse represents the server response for multi-collection synchronization.
+// Checkpoints field provides per-collection checkpoint timestamps, allowing each collection
+// to maintain its own independent checkpoint for accurate incremental synchronization.
 type PullDocumentsResponse struct {
-	Documents  []Document `json:"documents"`  // Unified array of synchronized documents
-	Checkpoint time.Time  `json:"checkpoint"` // Latest checkpoint across all documents
-	HasMore    bool       `json:"has_more"`   // Indicates whether additional data is available
+	Documents   []Document           `json:"documents"`             // Unified array of synchronized documents
+	Checkpoint  time.Time            `json:"checkpoint"`            // Latest checkpoint across all documents (legacy, for backward compatibility)
+	Checkpoints map[string]time.Time `json:"checkpoints,omitempty"` // Per-collection checkpoints: collection -> timestamp (each collection's checkpoint updated independently)
+	HasMore     bool                 `json:"has_more"`              // Indicates whether additional data is available
 }
 
 // PushMessages stores incoming messages for the given device.
@@ -183,23 +186,126 @@ func (s *ReplicationService) PushMessages(ctx context.Context, deviceID string, 
 	return nil
 }
 
+// getCheckpointForCollection retrieves checkpoint for a collection with fallback to default.
+// This helper function eliminates duplication in checkpoint retrieval logic across PullMessages and PullDocuments.
+// Returns the checkpoint from database if exists, otherwise returns defaultSince.
+func (s *ReplicationService) getCheckpointForCollection(
+	ctx context.Context,
+	deviceID string,
+	collection string,
+	defaultSince time.Time,
+) time.Time {
+	checkpoint, err := s.replicationRepo.GetCheckpoint(ctx, deviceID, collection)
+	if err != nil {
+		// No checkpoint exists, return default
+		return defaultSince
+	}
+	return checkpoint
+}
+
+// normalizeLimit validates and normalizes limit value to be between 1 and maxPullLimit.
+// This helper function eliminates duplication in limit validation logic across replication endpoints.
+// Returns defaultPullLimit if limit <= 0, maxPullLimit if limit > maxPullLimit, otherwise returns limit.
+func normalizeLimit(limit int) int {
+	if limit <= 0 {
+		return defaultPullLimit
+	}
+	if limit > maxPullLimit {
+		return maxPullLimit
+	}
+	return limit
+}
+
+// collectionResult holds the result of processing a collection
+type collectionResult struct {
+	documents  []interface{}
+	checkpoint time.Time
+	hasMore    bool
+}
+
+// processCollectionResult processes documents from a collection query and returns standardized result.
+// This helper eliminates duplication in collection processing logic.
+func processCollectionResult(
+	documents interface{},
+	limit int,
+	getTimestamp func(interface{}) time.Time,
+) *collectionResult {
+	result := &collectionResult{
+		documents:  []interface{}{},
+		checkpoint: time.Time{},
+		hasMore:    false,
+	}
+
+	// Type assertion and processing based on document type
+	switch docs := documents.(type) {
+	case []*domain.Message:
+		if len(docs) > 0 {
+			for _, doc := range docs {
+				result.documents = append(result.documents, doc)
+			}
+			if len(docs) == limit {
+				result.hasMore = true
+			}
+			result.checkpoint = getTimestamp(docs[len(docs)-1])
+		}
+	case []*domain.Group:
+		if len(docs) > 0 {
+			for _, doc := range docs {
+				result.documents = append(result.documents, doc)
+			}
+			if len(docs) == limit {
+				result.hasMore = true
+			}
+			result.checkpoint = getTimestamp(docs[len(docs)-1])
+		}
+	case []*domain.FavoriteGroup:
+		if len(docs) > 0 {
+			for _, doc := range docs {
+				result.documents = append(result.documents, doc)
+			}
+			if len(docs) == limit {
+				result.hasMore = true
+			}
+			result.checkpoint = getTimestamp(docs[len(docs)-1])
+		}
+	case []*domain.PinnedMessage:
+		if len(docs) > 0 {
+			for _, doc := range docs {
+				result.documents = append(result.documents, doc)
+			}
+			if len(docs) == limit {
+				result.hasMore = true
+			}
+			result.checkpoint = getTimestamp(docs[len(docs)-1])
+		}
+	case []*domain.UserStatus:
+		if len(docs) > 0 {
+			for _, doc := range docs {
+				result.documents = append(result.documents, doc)
+			}
+			if len(docs) == limit {
+				result.hasMore = true
+			}
+			result.checkpoint = getTimestamp(docs[len(docs)-1])
+		}
+	}
+
+	return result
+}
+
 // PullMessages returns messages newer than client's checkpoint.
 func (s *ReplicationService) PullMessages(ctx context.Context, deviceID string, req PullMessagesRequest) (*PullMessagesResponse, error) {
-	limit := req.Limit
-	if limit <= 0 {
-		limit = defaultPullLimit
-	} else if limit > maxPullLimit {
-		limit = maxPullLimit
-	}
+	limit := normalizeLimit(req.Limit)
 
 	var since time.Time
 	if req.Since != nil {
 		since = req.Since.UTC()
 	} else {
+		// Use helper function for checkpoint retrieval
+		defaultSince := time.Now().UTC().Add(defaultCheckpointDelta)
 		checkpoint, err := s.messageRepo.GetCheckpoint(ctx, deviceID)
 		if err != nil {
-			// If no checkpoint exists, default to last 24 hours
-			since = time.Now().UTC().Add(defaultCheckpointDelta)
+			since = defaultSince
 		} else {
 			since = checkpoint
 		}
@@ -224,7 +330,8 @@ func (s *ReplicationService) PullMessages(ctx context.Context, deviceID string, 
 	}, nil
 }
 
-// ValidCollections is the set of allowed collection names
+// ValidCollections is the set of allowed collection names.
+// Note: For consistency, frontend uses VALID_COLLECTIONS array in web/src/services/collections.ts
 var ValidCollections = map[string]bool{
 	"messages":        true,
 	"groups":          true,
@@ -245,19 +352,15 @@ func (s *ReplicationService) PullDocuments(ctx context.Context, deviceID string,
 		}
 	}
 
-	// Set limit
-	limit := req.Limit
-	if limit <= 0 {
-		limit = defaultPullLimit
-	} else if limit > maxPullLimit {
-		limit = maxPullLimit
-	}
+	// Normalize limit using helper function
+	limit := normalizeLimit(req.Limit)
 
 	// Default checkpoint delta
 	defaultSince := time.Now().UTC().Add(defaultCheckpointDelta)
 
 	var allDocuments []Document
 	var latestCheckpoint time.Time = time.Time{}
+	checkpoints := make(map[string]time.Time) // Per-collection checkpoints
 	hasMore := false
 
 	// Process each collection
@@ -271,14 +374,8 @@ func (s *ReplicationService) PullDocuments(ctx context.Context, deviceID string,
 				since = defaultSince
 			}
 		} else {
-			// Try to get from database
-			checkpoint, err := s.replicationRepo.GetCheckpoint(ctx, deviceID, collection)
-			if err != nil {
-				// No checkpoint exists, default to last 24 hours
-				since = defaultSince
-			} else {
-				since = checkpoint
-			}
+			// Use helper function to get checkpoint with fallback to default
+			since = s.getCheckpointForCollection(ctx, deviceID, collection, defaultSince)
 		}
 
 		// Query documents for this collection
@@ -291,8 +388,8 @@ func (s *ReplicationService) PullDocuments(ctx context.Context, deviceID string,
 			// Apply group_ids filter if provided
 			messages, err := s.messageRepo.GetMessagesAfter(ctx, since, limit)
 			if err != nil {
-				// Log error but continue with other collections (partial failure handling)
-				log.Printf("Failed to pull messages collection for device %s: %v", deviceID, err)
+				// Log error with structured context but continue with other collections (partial failure handling)
+				log.Printf("Failed to pull messages collection for device %s: %v (collection: messages, error_type: repository_error)", deviceID, err)
 				continue
 			}
 			if len(messages) > 0 {
@@ -323,8 +420,8 @@ func (s *ReplicationService) PullDocuments(ctx context.Context, deviceID string,
 		case "groups":
 			groups, err := s.groupRepo.GetGroupsAfter(ctx, since, limit)
 			if err != nil {
-				// Log error but continue with other collections (partial failure handling)
-				log.Printf("Failed to pull groups collection for device %s: %v", deviceID, err)
+				// Log error with structured context but continue with other collections (partial failure handling)
+				log.Printf("Failed to pull groups collection for device %s: %v (collection: groups, error_type: repository_error)", deviceID, err)
 				continue
 			}
 			if len(groups) > 0 {
@@ -340,8 +437,8 @@ func (s *ReplicationService) PullDocuments(ctx context.Context, deviceID string,
 		case "favorite_groups":
 			favorites, err := s.favoriteRepo.GetFavoritesAfter(ctx, deviceID, since, limit)
 			if err != nil {
-				// Log error but continue with other collections (partial failure handling)
-				log.Printf("Failed to pull favorite_groups collection for device %s: %v", deviceID, err)
+				// Log error with structured context but continue with other collections (partial failure handling)
+				log.Printf("Failed to pull favorite_groups collection for device %s: %v (collection: favorite_groups, error_type: repository_error)", deviceID, err)
 				continue
 			}
 			if len(favorites) > 0 {
@@ -357,8 +454,8 @@ func (s *ReplicationService) PullDocuments(ctx context.Context, deviceID string,
 		case "pinned_messages":
 			pins, err := s.pinRepo.GetPinsAfter(ctx, deviceID, since, limit)
 			if err != nil {
-				// Log error but continue with other collections (partial failure handling)
-				log.Printf("Failed to pull pinned_messages collection for device %s: %v", deviceID, err)
+				// Log error with structured context but continue with other collections (partial failure handling)
+				log.Printf("Failed to pull pinned_messages collection for device %s: %v (collection: pinned_messages, error_type: repository_error)", deviceID, err)
 				continue
 			}
 			if len(pins) > 0 {
@@ -374,8 +471,8 @@ func (s *ReplicationService) PullDocuments(ctx context.Context, deviceID string,
 		case "user_status":
 			statuses, err := s.statusRepo.GetStatusesAfter(ctx, deviceID, since, limit)
 			if err != nil {
-				// Log error but continue with other collections (partial failure handling)
-				log.Printf("Failed to pull user_status collection for device %s: %v", deviceID, err)
+				// Log error with structured context but continue with other collections (partial failure handling)
+				log.Printf("Failed to pull user_status collection for device %s: %v (collection: user_status, error_type: repository_error)", deviceID, err)
 				continue
 			}
 			if len(statuses) > 0 {
@@ -400,13 +497,22 @@ func (s *ReplicationService) PullDocuments(ctx context.Context, deviceID string,
 		// Update checkpoint for this collection
 		if len(collectionDocs) > 0 {
 			if err := s.replicationRepo.UpsertCheckpoint(ctx, deviceID, collection, collectionCheckpoint); err != nil {
-				// Log error but continue with other collections (partial failure handling)
-				log.Printf("Failed to update checkpoint for collection %s, device %s: %v", collection, deviceID, err)
+				// Log error with structured context but continue with other collections (partial failure handling)
+				log.Printf("Failed to update checkpoint for collection %s, device %s: %v (error_type: checkpoint_update_error)", collection, deviceID, err)
 				continue
 			}
-			// Track latest checkpoint across all collections
+			// Store per-collection checkpoint
+			checkpoints[collection] = collectionCheckpoint
+			// Track latest checkpoint across all collections (for legacy compatibility)
 			if collectionCheckpoint.After(latestCheckpoint) {
 				latestCheckpoint = collectionCheckpoint
+			}
+		} else {
+			// No new documents for this collection, but we should still return its current checkpoint if it exists
+			// This ensures frontend knows the checkpoint hasn't changed
+			currentCheckpoint, err := s.replicationRepo.GetCheckpoint(ctx, deviceID, collection)
+			if err == nil && !currentCheckpoint.IsZero() {
+				checkpoints[collection] = currentCheckpoint
 			}
 		}
 
@@ -422,8 +528,9 @@ func (s *ReplicationService) PullDocuments(ctx context.Context, deviceID string,
 	}
 
 	return &PullDocumentsResponse{
-		Documents:  allDocuments,
-		Checkpoint: latestCheckpoint,
-		HasMore:    hasMore,
+		Documents:   allDocuments,
+		Checkpoint:  latestCheckpoint, // Legacy field for backward compatibility
+		Checkpoints: checkpoints,      // Per-collection checkpoints
+		HasMore:     hasMore,
 	}, nil
 }

@@ -3,10 +3,8 @@
  */
 
 import { RefreshCw, ArrowLeft, Settings } from "lucide-react";
-import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useNavigationStore } from "@/stores/navigation-store";
-import { showToast } from "@/utils/toast";
 
 interface FeedErrorStateProps {
   title: string;
@@ -24,23 +22,9 @@ export function FeedErrorState({
   isGPSError = false,
 }: FeedErrorStateProps) {
   const { setActiveTab } = useNavigationStore();
-  const [copied, setCopied] = useState(false);
-  const googleMapsUrl = "https://www.google.com/maps";
 
   const handleGoToSettings = () => {
     setActiveTab("status");
-  };
-
-  const handleCopyLink = async () => {
-    try {
-      await navigator.clipboard.writeText(googleMapsUrl);
-      setCopied(true);
-      showToast("Đã copy link Google Maps", "success");
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error("Failed to copy:", err);
-      showToast("Không thể copy link", "error");
-    }
   };
 
   return (

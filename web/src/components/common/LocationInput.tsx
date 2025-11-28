@@ -28,7 +28,7 @@ export interface LocationInputProps {
 }
 
 function LocationAddressDisplay({
-  location,
+  location: _location,
 }: {
   location: { latitude: number; longitude: number };
 }) {
@@ -62,9 +62,9 @@ function CopyCoordinatesButton({
       type="button"
       variant="ghost"
       size="sm"
-      onClick={handleCopy}
+      onPress={handleCopy}
       className="h-7 w-7 p-0 shrink-0"
-      title="Copy tọa độ"
+      aria-label="Copy tọa độ"
     >
       {copied ? (
         <Check className="h-3.5 w-3.5 text-safety" />
@@ -201,8 +201,14 @@ export function LocationInput({
                 <div className="flex items-center gap-2 text-sm text-safety">
                   <MapPin className="h-4 w-4" />
                   <span>
-                    Đã lấy tọa độ: {location.latitude.toFixed(6)},{" "}
-                    {location.longitude.toFixed(6)}
+                    Đã lấy tọa độ:{" "}
+                    {(
+                      location as { latitude: number; longitude: number }
+                    ).latitude.toFixed(6)}
+                    ,{" "}
+                    {(
+                      location as { latitude: number; longitude: number }
+                    ).longitude.toFixed(6)}
                   </span>
                 </div>
               )}

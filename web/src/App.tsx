@@ -26,12 +26,15 @@ function App() {
     const deviceId = getDeviceId();
     const token = localStorage.getItem("jwt_token");
     // If we have device ID and token, we can try to fetch device
+    // Use setTimeout to avoid synchronous setState in effect
     if (deviceId && token) {
-      setShouldFetchDevice(true);
+      setTimeout(() => setShouldFetchDevice(true), 0);
     } else {
       // No device ID or token - needs onboarding
-      setShouldFetchDevice(false);
-      setOnboardingComplete(false);
+      setTimeout(() => {
+        setShouldFetchDevice(false);
+        setOnboardingComplete(false);
+      }, 0);
     }
   }, []);
 

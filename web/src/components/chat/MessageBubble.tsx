@@ -310,10 +310,13 @@ export const MessageBubble = memo(
   },
   (prevProps, nextProps) => {
     // Custom comparison function for memo
+    // Only re-render if meaningful data changed
+    // Note: onClick function reference is not compared as it's usually stable
     return (
       prevProps.message.id === nextProps.message.id &&
       prevProps.message.content === nextProps.message.content &&
       prevProps.message.sync_status === nextProps.message.sync_status &&
+      prevProps.message.created_at === nextProps.message.created_at &&
       prevProps.isOwn === nextProps.isOwn &&
       prevProps.className === nextProps.className &&
       prevProps.showPinButton === nextProps.showPinButton &&
@@ -321,9 +324,8 @@ export const MessageBubble = memo(
       prevProps.device?.id === nextProps.device?.id &&
       prevProps.device?.nickname === nextProps.device?.nickname &&
       prevProps.groupLocation?.latitude === nextProps.groupLocation?.latitude &&
-      prevProps.groupLocation?.longitude ===
-        nextProps.groupLocation?.longitude &&
-      prevProps.onClick === nextProps.onClick
+      prevProps.groupLocation?.longitude === nextProps.groupLocation?.longitude
+      // Intentionally not comparing onClick - function references may change but behavior is the same
     );
   }
 );

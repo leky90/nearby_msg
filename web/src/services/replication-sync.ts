@@ -10,6 +10,8 @@ import type { Group } from '../domain/group';
 import type { FavoriteGroup } from '../domain/favorite_group';
 import type { PinnedMessage } from '../domain/pinned_message';
 import type { UserStatus } from '../domain/user_status';
+import type { Collection } from './collections';
+import type { NearbyMsgDatabase } from './db';
 
 const DEFAULT_SYNC_INTERVAL = 5000;
 const MAX_RETRIES = 5;
@@ -22,6 +24,7 @@ const LEGACY_CHECKPOINT_KEY = 'nearby_msg_messages_checkpoint';
 let syncTimer: ReturnType<typeof setTimeout> | null = null;
 let isSyncRunning = false;
 let retryDelay = INITIAL_RETRY_DELAY;
+let migrationCompleted = false; // Track migration status to run only once
 
 type PushPayload = {
   id: string;
@@ -41,7 +44,8 @@ type Document = {
 
 type PullDocumentsResponse = {
   documents: Document[];
-  checkpoint: string;
+  checkpoint: string; // Legacy field for backward compatibility
+  checkpoints?: Record<string, string>; // Per-collection checkpoints: collection -> ISO timestamp
   has_more: boolean;
 };
 
@@ -89,25 +93,32 @@ function getCheckpointForCollections(
 }
 
 /**
- * Updates checkpoints for multiple collections
+ * Updates checkpoints for multiple collections using per-collection checkpoint map.
+ * Each collection's checkpoint is updated independently based on its own latest document timestamp.
+ * This eliminates the bug where all collections shared the same checkpoint, which could cause
+ * data inconsistency (e.g., if only messages updated, groups checkpoint would incorrectly update).
+ * @param checkpoints - Map of collection names to ISO timestamp strings (e.g., { "messages": "2025-01-28T10:00:00Z", "groups": "2025-01-28T09:30:00Z" })
  */
 function updateCheckpointsForCollections(
-  collections: string[],
-  checkpoint: string
+  checkpoints: Record<string, string>
 ): void {
-  for (const collection of collections) {
+  for (const [collection, checkpoint] of Object.entries(checkpoints)) {
     setCheckpoint(collection, checkpoint);
   }
 }
 
 /**
  * Migrates legacy single checkpoint to per-collection format
- * This runs once on first sync to migrate existing checkpoint data
+ * This runs once on app startup to migrate existing checkpoint data
+ * Uses migrationCompleted flag to ensure it only runs once per application session
+ * Exported for use in replication.ts startup
  */
-function migrateLegacyCheckpoint(): void {
-  if (typeof localStorage === 'undefined') {
+export function migrateLegacyCheckpoint(): void {
+  // Return early if migration already completed
+  if (migrationCompleted || typeof localStorage === 'undefined') {
     return;
   }
+
   const legacyCheckpoint = localStorage.getItem(LEGACY_CHECKPOINT_KEY);
   if (legacyCheckpoint) {
     // Migrate to messages collection checkpoint
@@ -122,6 +133,9 @@ function migrateLegacyCheckpoint(): void {
     // Remove legacy key
     localStorage.removeItem(LEGACY_CHECKPOINT_KEY);
   }
+
+  // Mark migration as completed
+  migrationCompleted = true;
 }
 
 /**
@@ -210,8 +224,8 @@ async function pullDocuments(
   collections: string[],
   groupIds?: string[]
 ): Promise<void> {
-  // Migrate legacy checkpoint on first sync
-  migrateLegacyCheckpoint();
+  // Migration is now handled at app startup in replication.ts
+  // No need to call migrateLegacyCheckpoint() here anymore
 
   const checkpoint = getCheckpointForCollections(collections);
   const body: Record<string, unknown> = {
@@ -232,37 +246,53 @@ async function pullDocuments(
 
   const db = await getDatabase();
 
-  // Process each document by collection type
+  // Document processor map - replaces switch case for cleaner, extensible code.
+  // This pattern eliminates duplication and makes adding new collections trivial (just add to map).
+  type DocumentProcessor = (
+    doc: Message | Group | FavoriteGroup | PinnedMessage | UserStatus,
+    db: NearbyMsgDatabase
+  ) => Promise<void>;
+
+  const documentProcessors: Record<Collection, DocumentProcessor> = {
+    messages: async (doc, db) => {
+      await db.messages.upsert({
+        ...(doc as Message),
+        sync_status: 'synced',
+        synced_at: (doc as Message).synced_at ?? new Date().toISOString(),
+      });
+    },
+    groups: async (doc, db) => {
+      await db.groups.upsert(doc as Group);
+    },
+    favorite_groups: async (doc, db) => {
+      await db.favorite_groups.upsert(doc as FavoriteGroup);
+    },
+    pinned_messages: async (doc, db) => {
+      await db.pinned_messages.upsert(doc as PinnedMessage);
+    },
+    user_status: async (doc, db) => {
+      await db.user_status.upsert(doc as UserStatus);
+    },
+  };
+
+  // Process each document using processor map
   await Promise.all(
     response.documents.map(async (doc) => {
       try {
-        switch (doc.collection) {
-          case 'messages':
-            await db.messages.upsert({
-              ...(doc.document as Message),
-              sync_status: 'synced',
-              synced_at:
-                (doc.document as Message).synced_at ?? new Date().toISOString(),
-            });
-            break;
-          case 'groups':
-            await db.groups.upsert(doc.document as Group);
-            break;
-          case 'favorite_groups':
-            await db.favorite_groups.upsert(doc.document as FavoriteGroup);
-            break;
-          case 'pinned_messages':
-            await db.pinned_messages.upsert(doc.document as PinnedMessage);
-            break;
-          case 'user_status':
-            await db.user_status.upsert(doc.document as UserStatus);
-            break;
-          default:
-            console.warn(`Unknown collection type: ${doc.collection}`);
+        const processor = documentProcessors[doc.collection as Collection];
+        if (processor) {
+          await processor(doc.document, db);
+        } else {
+          console.warn(
+            `Unknown collection type: ${doc.collection}. Valid collections: messages, groups, favorite_groups, pinned_messages, user_status`
+          );
         }
       } catch (error) {
         // Log error but continue processing other documents (partial failure handling)
-        console.error(`Failed to process document from collection ${doc.collection}:`, error);
+        console.error(
+          `Failed to process document from collection ${doc.collection}:`,
+          error
+        );
       }
     })
   );
@@ -273,8 +303,18 @@ async function pullDocuments(
   }
 
   // Update checkpoints per collection
-  if (response.checkpoint) {
-    updateCheckpointsForCollections(collections, response.checkpoint);
+  // Prefer per-collection checkpoints if available, fallback to legacy single checkpoint
+  if (response.checkpoints && Object.keys(response.checkpoints).length > 0) {
+    // New format: per-collection checkpoints
+    updateCheckpointsForCollections(response.checkpoints);
+  } else if (response.checkpoint) {
+    // Legacy format: single checkpoint for all collections (backward compatibility)
+    // Convert to per-collection format
+    const legacyCheckpoints: Record<string, string> = {};
+    for (const collection of collections) {
+      legacyCheckpoints[collection] = response.checkpoint;
+    }
+    updateCheckpointsForCollections(legacyCheckpoints);
   }
 }
 
@@ -338,6 +378,7 @@ export async function triggerImmediateSync(): Promise<void> {
  * Pulls documents from specific collections
  * @param collections Array of collection names to sync
  * @param groupIds Optional array of group IDs to filter messages
+ * @deprecated Use pullDocuments directly instead
  */
 export async function pullDocumentsFromCollections(
   collections: string[],
@@ -345,3 +386,6 @@ export async function pullDocumentsFromCollections(
 ): Promise<void> {
   await pullDocuments(collections, groupIds);
 }
+
+// Export pullDocuments for direct use
+export { pullDocuments };

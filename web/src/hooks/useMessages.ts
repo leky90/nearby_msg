@@ -4,7 +4,7 @@
  * Uses TanStack Query for initial load and caching, with reactive subscriptions for real-time updates
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { Message } from '../domain/message';
 import { watchGroupMessages, getDatabase } from '../services/db';
@@ -49,9 +49,35 @@ async function fetchMessages(groupId: string, limit: number): Promise<Message[]>
 }
 
 /**
+ * Compares two message arrays to determine if they're equal
+ * Only checks meaningful fields to avoid unnecessary re-renders
+ */
+function areMessagesEqual(prev: Message[], next: Message[]): boolean {
+  if (prev.length !== next.length) return false;
+  
+  // Quick reference check
+  if (prev === next) return true;
+  
+  // Deep comparison of message IDs and key fields
+  return prev.every((msg, idx) => {
+    const nextMsg = next[idx];
+    if (!nextMsg) return false;
+    
+    return (
+      msg.id === nextMsg.id &&
+      msg.content === nextMsg.content &&
+      msg.sync_status === nextMsg.sync_status &&
+      msg.created_at === nextMsg.created_at &&
+      msg.device_id === nextMsg.device_id
+    );
+  });
+}
+
+/**
  * useMessages hook
  * Provides reactive message queries from RxDB
  * Uses TanStack Query for initial load and caching, with reactive subscriptions for real-time updates
+ * Optimized to prevent unnecessary re-renders when messages haven't actually changed
  */
 export function useMessages({
   groupId,
@@ -59,6 +85,8 @@ export function useMessages({
   reactive = true,
 }: UseMessagesOptions): UseMessagesResult {
   const [messages, setMessages] = useState<Message[]>([]);
+  const messagesRef = useRef<Message[]>([]);
+  const updateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Use TanStack Query for initial load and caching
   const {
@@ -74,9 +102,10 @@ export function useMessages({
     retry: 2,
   });
 
-  // Update messages when query data changes
+  // Update messages when query data changes (only if different)
   useEffect(() => {
-    if (initialMessages) {
+    if (initialMessages && !areMessagesEqual(messagesRef.current, initialMessages)) {
+      messagesRef.current = initialMessages;
       setMessages(initialMessages);
     }
   }, [initialMessages]);
@@ -94,7 +123,21 @@ export function useMessages({
         unsubscribe = await watchGroupMessages(groupId, (messageArray) => {
           // Apply limit if specified
           const limitedMessages = limit ? messageArray.slice(-limit) : messageArray;
-          setMessages(limitedMessages);
+          
+          // Debounce updates to prevent rapid re-renders during sync
+          // This helps prevent UI flash when multiple messages update at once
+          if (updateTimerRef.current) {
+            clearTimeout(updateTimerRef.current);
+          }
+          
+          updateTimerRef.current = setTimeout(() => {
+            // Only update if messages actually changed
+            if (!areMessagesEqual(messagesRef.current, limitedMessages)) {
+              messagesRef.current = limitedMessages;
+              setMessages(limitedMessages);
+            }
+            updateTimerRef.current = null;
+          }, 50); // 50ms debounce - short enough to feel instant, long enough to batch updates
         });
       } catch (err) {
         console.error('Failed to setup reactive query:', err);
@@ -104,14 +147,21 @@ export function useMessages({
     void setupReactive();
 
     return () => {
+      if (updateTimerRef.current) {
+        clearTimeout(updateTimerRef.current);
+      }
       if (unsubscribe) {
         unsubscribe();
       }
     };
   }, [groupId, limit, reactive]);
 
+  // Memoize messages to prevent unnecessary re-renders
+  // The messages state is already optimized with deep comparison, but this adds an extra layer
+  const memoizedMessages = useMemo(() => messages, [messages]);
+
   return {
-    messages,
+    messages: memoizedMessages,
     isLoading: queryLoading,
     error: queryError instanceof Error ? queryError : queryError ? new Error(String(queryError)) : null,
     refresh: async () => {

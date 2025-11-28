@@ -43,7 +43,7 @@ const groupTypeLabels: Record<Group["type"], string> = {
 export function GroupListItem({
   group,
   distanceDisplay,
-  latestMessagePreview,
+  latestMessagePreview: _latestMessagePreview,
   isFavorited,
   unreadCount,
   onClick,

@@ -72,11 +72,9 @@ Thumbs.db
 *.local
 .cache/
 
-# Vite/PWA build artifacts
-web/dev-dist/
-
 # Go build artifacts
 bin/
 tmp/
 build-errors.log
+api/server
 

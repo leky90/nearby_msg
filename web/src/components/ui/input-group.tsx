@@ -1,14 +1,18 @@
 /* eslint-disable react-refresh/only-export-components */
-"use client"
+"use client";
 
-import * as React from "react"
-import { composeRenderProps, Group, type GroupProps } from "react-aria-components"
-import { tv, type VariantProps } from "tailwind-variants"
+import * as React from "react";
+import {
+  composeRenderProps,
+  Group,
+  type GroupProps,
+} from "react-aria-components";
+import { tv, type VariantProps } from "tailwind-variants";
 
-import { cn } from "@/lib/utils"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 
 export function inputGroupStyles(props: React.ComponentProps<"div">) {
   return cn(
@@ -30,7 +34,7 @@ export function inputGroupStyles(props: React.ComponentProps<"div">) {
     "has-[[data-slot][aria-invalid=true]]:ring-destructive/20 has-[[data-slot][aria-invalid=true]]:border-destructive dark:has-[[data-slot][aria-invalid=true]]:ring-destructive/40",
 
     props.className
-  )
+  );
 }
 
 function InputGroup({ className, ...props }: GroupProps) {
@@ -42,7 +46,7 @@ function InputGroup({ className, ...props }: GroupProps) {
       )}
       {...props}
     />
-  )
+  );
 }
 
 const inputGroupAddonVariants = tv({
@@ -62,7 +66,7 @@ const inputGroupAddonVariants = tv({
   defaultVariants: {
     align: "inline-start",
   },
-})
+});
 
 function InputGroupAddon({
   className,
@@ -77,13 +81,13 @@ function InputGroupAddon({
       className={inputGroupAddonVariants({ align, className })}
       onClick={(e) => {
         if ((e.target as HTMLElement).closest("button")) {
-          return
+          return;
         }
-        e.currentTarget.parentElement?.querySelector("input")?.focus()
+        e.currentTarget.parentElement?.querySelector("input")?.focus();
       }}
       {...props}
     />
-  )
+  );
 }
 
 const inputGroupButtonVariants = tv({
@@ -99,7 +103,7 @@ const inputGroupButtonVariants = tv({
   defaultVariants: {
     size: "xs",
   },
-})
+});
 
 function InputGroupButton({
   className,
@@ -114,10 +118,13 @@ function InputGroupButton({
       type={type}
       data-size={size}
       variant={variant}
-      className={inputGroupButtonVariants({ size, className })}
+      className={inputGroupButtonVariants({
+        size,
+        className: className as string,
+      })}
       {...props}
     />
-  )
+  );
 }
 
 function InputGroupText({ className, ...props }: React.ComponentProps<"span">) {
@@ -129,7 +136,7 @@ function InputGroupText({ className, ...props }: React.ComponentProps<"span">) {
       )}
       {...props}
     />
-  )
+  );
 }
 
 export const inputGroupInputStyles = tv({
@@ -142,7 +149,7 @@ export const inputGroupInputStyles = tv({
       true: "ring-0 border-0",
     },
   },
-})
+});
 
 function InputGroupInput({
   className,
@@ -156,7 +163,7 @@ function InputGroupInput({
       )}
       {...props}
     />
-  )
+  );
 }
 
 function InputGroupTextarea({
@@ -173,7 +180,7 @@ function InputGroupTextarea({
       )}
       {...props}
     />
-  )
+  );
 }
 
 export {
@@ -183,4 +190,4 @@ export {
   InputGroupText,
   InputGroupInput,
   InputGroupTextarea,
-}
+};
