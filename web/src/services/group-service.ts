@@ -109,16 +109,6 @@ export async function getGroup(groupId: string): Promise<Group | null> {
 }
 
 /**
- * Gets all cached groups from RxDB
- * @returns Array of cached groups
- */
-export async function getCachedGroups(): Promise<Group[]> {
-  const db = await getDatabase();
-  const groups = await db.groups.find().exec();
-  return groups.map((doc) => doc.toJSON() as Group);
-}
-
-/**
  * Group suggestion response
  */
 export interface GroupSuggestion {

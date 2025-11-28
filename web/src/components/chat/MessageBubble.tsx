@@ -37,9 +37,9 @@ function formatMessageTimestamp(timestamp: string): string {
   const diffHours = Math.floor(diffMs / 3600000);
   const diffDays = Math.floor(diffMs / 86400000);
 
-  // Less than 1 minute: "Just now"
+  // Less than 1 minute: "Vừa xong"
   if (diffMins < 1) {
-    return "Just now";
+    return "Vừa xong";
   }
 
   // Less than 1 hour: "X minutes ago"
@@ -139,7 +139,7 @@ export const MessageBubble = memo(
               className="h-6 w-6 p-0"
               onClick={handlePinClick}
               isDisabled={isPinning}
-              aria-label={pinned ? "Unpin message" : "Pin message"}
+              aria-label={pinned ? "Bỏ ghim tin nhắn" : "Ghim tin nhắn"}
             >
               {pinned ? (
                 <PinOff className="h-4 w-4" />

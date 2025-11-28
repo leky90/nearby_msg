@@ -132,7 +132,7 @@ function CommandInput({
 
   return (
     <TextField
-      aria-label="Search commands"
+      aria-label="Tìm kiếm lệnh"
       className={cn(
         "flex h-9 items-center gap-2 border-b px-3",
         wrapperClassName

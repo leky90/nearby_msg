@@ -12,10 +12,17 @@ import { getOrCreateDeviceId, setDeviceId } from './device-storage';
 /**
  * Query function for fetching device
  * Reads from RxDB first, then falls back to API if not found
- * If device not found on server, automatically registers it
+ * Does NOT auto-register - user must provide nickname via onboarding
  * @returns Device or null
  */
 export async function fetchDevice(): Promise<Device | null> {
+  // Check if we have a token first - if not, don't try to fetch
+  const token = localStorage.getItem('jwt_token');
+  if (!token) {
+    // No token means device not registered yet - return null to trigger onboarding
+    return null;
+  }
+
   const deviceId = getOrCreateDeviceId();
   
   // Try RxDB first (instant, offline support)
@@ -25,7 +32,6 @@ export async function fetchDevice(): Promise<Device | null> {
     if (cached) {
       const device = cached.toJSON() as Device;
       // Verify token exists - if not, device might need re-registration
-      const token = localStorage.getItem('jwt_token');
       if (token) {
         return device;
       }
@@ -48,7 +54,8 @@ export async function fetchDevice(): Promise<Device | null> {
     
     return response;
   } catch (err) {
-    // If 404 (device not found) or 401 (unauthorized), try auto-registration
+    // If 404 (device not found) or 401 (unauthorized), device needs registration
+    // But we don't auto-register - user must provide nickname first
     if (
       err &&
       typeof err === 'object' &&
@@ -56,15 +63,8 @@ export async function fetchDevice(): Promise<Device | null> {
       ((err as { status: number }).status === 404 ||
         (err as { status: number }).status === 401)
     ) {
-      // Device not registered on server - auto-register
-      try {
-        const registrationResponse = await registerDeviceMutation();
-        return registrationResponse.device;
-      } catch (regErr) {
-        // Auto-registration failed, return null
-        console.warn('Auto-registration failed:', regErr);
-        return null;
-      }
+      // Device not registered - return null to trigger onboarding
+      return null;
     }
     // Other errors - return null
     return null;
@@ -129,7 +129,7 @@ export async function updateDeviceNickname(nickname: string): Promise<Device> {
     return apiDevice;
   }
 
-  throw new Error('Device not found');
+  throw new Error('Không tìm thấy thiết bị');
 }
 
 /**

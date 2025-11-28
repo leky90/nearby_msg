@@ -38,6 +38,7 @@
     "react": "^19.2.0",
     "react-aria-components": "^1.13.0",
     "react-dom": "^19.2.0",
+    "react-router-dom": "^7.9.6",
     "rxdb": "^16.21.0",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.4.0",
@@ -48,7 +49,8 @@
     "vitest": "^3.2.4",
     "workbox-precaching": "^7.4.0",
     "workbox-routing": "^7.4.0",
-    "workbox-window": "^7.4.0"
+    "workbox-window": "^7.4.0",
+    "zustand": "^5.0.8"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

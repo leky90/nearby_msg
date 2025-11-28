@@ -59,14 +59,6 @@ export async function fetchFavorites(): Promise<FavoriteGroup[]> {
 }
 
 /**
- * Gets all favorite groups for current device (legacy function for backward compatibility)
- * @returns Array of favorite groups
- */
-export async function getFavorites(): Promise<FavoriteGroup[]> {
-  return fetchFavorites();
-}
-
-/**
  * Gets cached favorite groups from RxDB
  * @returns Array of cached favorite groups
  */

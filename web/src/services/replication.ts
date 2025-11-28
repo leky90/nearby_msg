@@ -16,9 +16,17 @@ export type ReplicationOptions = {
 
 /**
  * Initializes replication once per session.
+ * Only starts if device has been registered (has token).
  */
 export function startReplication(options: ReplicationOptions = {}): void {
   if (replicationStarted) {
+    return;
+  }
+
+  // Check if device is registered (has token)
+  const token = localStorage.getItem('jwt_token');
+  if (!token) {
+    console.log('Replication not started: Device not registered yet');
     return;
   }
 
