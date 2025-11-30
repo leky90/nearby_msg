@@ -55,7 +55,9 @@ export function useDevice(enabled: boolean = true): UseDeviceReturn {
 
   // Register device (dispatches Redux action)
   const registerDevice = async (request?: DeviceCreateRequest) => {
+    console.log('[useDevice] registerDevice: Dispatching action', { request });
     dispatch(registerDeviceAction(request));
+    console.log('[useDevice] registerDevice: Action dispatched');
   };
 
   // Update device (dispatches Redux action)

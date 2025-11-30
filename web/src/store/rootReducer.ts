@@ -5,6 +5,7 @@ import messagesReducer from './slices/messagesSlice';
 import groupsReducer from './slices/groupsSlice';
 import deviceReducer from './slices/deviceSlice';
 import websocketReducer from './slices/websocketSlice';
+import syncStatusReducer from './slices/syncStatusSlice';
 
 const rootReducer = combineReducers({
   app: appReducer,
@@ -13,6 +14,7 @@ const rootReducer = combineReducers({
   groups: groupsReducer,
   device: deviceReducer,
   websocket: websocketReducer,
+  syncStatus: syncStatusReducer,
 });
 
 export type RootState = ReturnType<typeof rootReducer>;

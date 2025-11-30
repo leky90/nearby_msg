@@ -1,28 +1,34 @@
 /**
  * Chat Header Component
  * Compact header with essential information only
+ * Uses Redux state managed by groupSaga
  */
 
 import { Star, ArrowLeft } from "lucide-react";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { useDispatch } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 import {
   setActiveTab,
   setCurrentChatGroupId,
 } from "@/store/slices/navigationSlice";
+import { selectGroupStatusSummary } from "@/store/slices/groupsSlice";
+import {
+  startGroupStatusSummaryAction,
+  stopGroupStatusSummaryAction,
+} from "@/store/sagas/groupSaga";
 import type { Group } from "../../domain/group";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { cn } from "@/lib/utils";
 import { isFavorited } from "../../services/favorite-service";
-import { getGroupStatusSummary } from "../../services/status-service";
 import { getOrCreateDeviceId } from "../../services/device-storage";
 import { StatusSummary } from "../groups/StatusSummary";
 import { GroupNameEditor } from "./GroupNameEditor";
 import { SyncStatusIndicator } from "./SyncStatusIndicator";
 import { t } from "@/lib/i18n";
 import { log } from "../../lib/logging/logger";
+import type { RootState } from "@/store";
 
 export interface ChatHeaderProps {
   /** Group information */
@@ -67,13 +73,26 @@ export function ChatHeader({
   const dispatch = useDispatch();
   const [favorited, setFavorited] = useState(false);
   const [isCreator, setIsCreator] = useState(false);
-  const [statusSummary, setStatusSummary] = useState<{
-    safe_count: number;
-    need_help_count: number;
-    cannot_contact_count: number;
-    total_count: number;
-  } | null>(null);
-  const statusSummaryLoadingRef = useRef(false);
+
+  // Get status summary from Redux state
+  const statusSummaryData = useSelector((state: RootState) =>
+    selectGroupStatusSummary(state, group.id)
+  );
+  const statusSummary = {
+    safe_count: statusSummaryData.safe_count,
+    need_help_count: statusSummaryData.need_help_count,
+    cannot_contact_count: statusSummaryData.cannot_contact_count,
+    total_count: statusSummaryData.total_count,
+  };
+
+  // Start monitoring status summary on mount
+  useEffect(() => {
+    dispatch(startGroupStatusSummaryAction(group.id));
+
+    return () => {
+      dispatch(stopGroupStatusSummaryAction(group.id));
+    };
+  }, [group.id, dispatch]);
 
   const handleBack = () => {
     dispatch(setCurrentChatGroupId(null));
@@ -81,42 +100,35 @@ export function ChatHeader({
     navigate("/");
   };
 
-  // Check if current device is the creator
-  // Only the owner (device_id matches creator_device_id) can edit
+  // Check if device is creator
   useEffect(() => {
-    const checkCreator = async () => {
+    const checkIsCreator = async () => {
       try {
         const deviceId = getOrCreateDeviceId();
-        const isOwner = group.creator_device_id === deviceId;
-        setIsCreator(isOwner);
+        setIsCreator(group.creator_device_id === deviceId);
       } catch (err) {
-        log.error("Failed to check creator status", err, { groupId: group.id });
-        setIsCreator(false);
+        log.error("Failed to check if creator", err);
       }
     };
-    void checkCreator();
-  }, [group.creator_device_id, group.id]);
+    void checkIsCreator();
+  }, [group.creator_device_id]);
 
-  // Check favorite status on mount and when group changes
+  // Check favorite status
   useEffect(() => {
     const checkFavorite = async () => {
       try {
-        const favoritedStatus = await isFavorited(group.id);
-        setFavorited(favoritedStatus);
+        const isFav = await isFavorited(group.id);
+        setFavorited(isFav);
       } catch (err) {
-        log.error("Failed to check favorite status", err, {
-          groupId: group.id,
-        });
+        log.error("Failed to check favorite status", err);
       }
     };
     void checkFavorite();
   }, [group.id]);
 
-  // Update favorited state when callback is triggered
-  // This ensures UI updates immediately even if API call is in progress
-  const handleFavoriteClick = async () => {
+  const handleFavoriteToggle = async () => {
     const newFavorited = !favorited;
-    setFavorited(newFavorited); // Optimistic update
+    setFavorited(newFavorited);
     try {
       await onFavoriteToggle?.(newFavorited);
     } catch (err) {
@@ -126,49 +138,6 @@ export function ChatHeader({
     }
   };
 
-  // Load status summary from RxDB (synced via replication)
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadStatusSummary = async () => {
-      // Skip if already loading
-      if (statusSummaryLoadingRef.current) {
-        return;
-      }
-
-      statusSummaryLoadingRef.current = true;
-      try {
-        // Calculate from RxDB (data synced via replication mechanism)
-        // No need to poll API - replication sync handles updates automatically
-        const summary = await getGroupStatusSummary(group.id);
-        // Only update state if component is still mounted
-        if (isMounted) {
-          setStatusSummary(summary);
-        }
-      } catch (err) {
-        log.error("Failed to load status summary", err, { groupId: group.id });
-      } finally {
-        statusSummaryLoadingRef.current = false;
-      }
-    };
-
-    void loadStatusSummary();
-
-    // Watch RxDB for status updates via reactive query
-    // Replication sync updates user_status collection every 5 seconds
-    // We refresh status summary when user_status changes
-    // Use longer interval since status changes are infrequent
-    const interval = setInterval(() => {
-      void loadStatusSummary();
-    }, 60000); // Refresh every 60 seconds (status changes are rare)
-
-    return () => {
-      isMounted = false;
-      clearInterval(interval);
-      statusSummaryLoadingRef.current = false;
-    };
-  }, [group.id]);
-
   return (
     <header
       className={cn(
@@ -177,67 +146,55 @@ export function ChatHeader({
       )}
     >
       {/* Left: Back button, Group info */}
-      <div className="flex items-center gap-2 min-w-0 flex-1">
+      <div className="flex items-center gap-2 flex-1 min-w-0">
         <Button
           variant="ghost"
           size="sm"
           onClick={handleBack}
           className="h-8 w-8 p-0 shrink-0"
-          aria-label="Trở về"
+          aria-label={t("navigation.back")}
         >
-          <ArrowLeft className="size-4" />
+          <ArrowLeft className="h-4 w-4" />
         </Button>
 
-        <div className="flex items-center gap-2 min-w-0 flex-1">
-          <div className="flex flex-col min-w-0 flex-1">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <Badge
-                variant="secondary"
-                className="text-[10px] px-1.5 py-0 shrink-0"
-              >
-                {getGroupTypeLabel(group.type)}
-              </Badge>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <h1 className="text-sm font-semibold truncate">
+              {group.name || t("group.unnamed")}
+            </h1>
+            {isCreator && (
               <GroupNameEditor
                 group={group}
                 isCreator={isCreator}
                 onGroupUpdated={onGroupUpdated}
               />
-            </div>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+            <Badge variant="outline" className="text-[9px] px-1 py-0">
+              {getGroupTypeLabel(group.type)}
+            </Badge>
             <SyncStatusIndicator groupId={group.id} />
           </div>
         </div>
       </div>
 
-      {/* Right: Action buttons */}
-      <div className="flex items-center gap-1 shrink-0">
-        {onFavoriteToggle && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleFavoriteClick}
-            className="h-8 w-8 p-0"
-            aria-label={
-              favorited
-                ? t("component.chatHeader.unfavoriteGroup")
-                : t("component.chatHeader.favoriteGroup")
-            }
-          >
-            <Star
-              className={cn(
-                "size-4",
-                favorited && "fill-yellow-400 text-yellow-400"
-              )}
-            />
-          </Button>
+      {/* Right: Status summary, Favorite button */}
+      <div className="flex items-center gap-2 shrink-0">
+        {statusSummary.total_count > 0 && (
+          <StatusSummary summary={statusSummary} className="text-xs" />
         )}
-      </div>
 
-      {/* Status summary - show as tooltip or compact badge if needed */}
-      {statusSummary && statusSummary.total_count > 0 && (
-        <div className="hidden sm:block ml-2">
-          <StatusSummary summary={statusSummary} />
-        </div>
-      )}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={handleFavoriteToggle}
+          className={cn("h-8 w-8 p-0", favorited && "text-yellow-500")}
+          aria-label={favorited ? t("group.unfavorite") : t("group.favorite")}
+        >
+          <Star className={cn("h-4 w-4", favorited && "fill-current")} />
+        </Button>
+      </div>
     </header>
   );
 }

@@ -25,6 +25,19 @@ interface GroupsState {
     longitude: number;
     radius: number;
   } | null;
+  
+  // Device's created group
+  deviceCreatedGroup: Group | null;
+  deviceCreatedGroupLoading: boolean;
+  
+  // Status summary by group ID
+  statusSummaryByGroupId: Record<string, {
+    safe_count: number;
+    need_help_count: number;
+    cannot_contact_count: number;
+    total_count: number;
+    lastUpdated: string;
+  }>;
 }
 
 const initialState: GroupsState = {
@@ -34,6 +47,9 @@ const initialState: GroupsState = {
   favoriteGroupIds: [],
   byId: {},
   lastFetchParams: null,
+  deviceCreatedGroup: null,
+  deviceCreatedGroupLoading: false,
+  statusSummaryByGroupId: {},
 };
 
 const groupsSlice = createSlice({
@@ -106,6 +122,30 @@ const groupsSlice = createSlice({
     ) => {
       state.lastFetchParams = action.payload;
     },
+    setDeviceCreatedGroup: (state, action: PayloadAction<Group | null>) => {
+      state.deviceCreatedGroup = action.payload;
+    },
+    setDeviceCreatedGroupLoading: (state, action: PayloadAction<boolean>) => {
+      state.deviceCreatedGroupLoading = action.payload;
+    },
+    setGroupStatusSummary: (
+      state,
+      action: PayloadAction<{
+        groupId: string;
+        summary: {
+          safe_count: number;
+          need_help_count: number;
+          cannot_contact_count: number;
+          total_count: number;
+        };
+      }>
+    ) => {
+      const { groupId, summary } = action.payload;
+      state.statusSummaryByGroupId[groupId] = {
+        ...summary,
+        lastUpdated: new Date().toISOString(),
+      };
+    },
   },
 });
 
@@ -119,6 +159,9 @@ export const {
   addFavoriteGroup,
   removeFavoriteGroup,
   setLastFetchParams,
+  setDeviceCreatedGroup,
+  setDeviceCreatedGroupLoading,
+  setGroupStatusSummary,
 } = groupsSlice.actions;
 
 // Base selector
@@ -156,6 +199,27 @@ export const selectGroupDetails = createSelector(
     group: null,
     isLoading: false,
     error: null,
+  }
+);
+
+export const selectDeviceCreatedGroup = createSelector(
+  [selectGroupsState],
+  (groups) => groups.deviceCreatedGroup
+);
+
+export const selectHasDeviceCreatedGroup = createSelector(
+  [selectGroupsState],
+  (groups) => groups.deviceCreatedGroup !== null
+);
+
+export const selectGroupStatusSummary = createSelector(
+  [selectGroupsState, (_state: { groups: GroupsState }, groupId: string) => groupId],
+  (groups, groupId) => groups.statusSummaryByGroupId[groupId] || {
+    safe_count: 0,
+    need_help_count: 0,
+    cannot_contact_count: 0,
+    total_count: 0,
+    lastUpdated: new Date().toISOString(),
   }
 );
 

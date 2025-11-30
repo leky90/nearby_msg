@@ -83,7 +83,9 @@ export default defineConfig({
         navigateFallbackDenylist: [/^\/api/, /^\/_/, /^\/v1/],
         // Clean up old caches on activation
         cleanupOutdatedCaches: true,
-        // Skip waiting to activate immediately
+        // Skip waiting: true = auto update (updates activate immediately)
+        // With skipWaiting: true, updates happen automatically
+        // PWAUpdateNotification only informs user, no action needed
         skipWaiting: true,
         clientsClaim: true,
         // Import custom service worker code if needed (for background sync)

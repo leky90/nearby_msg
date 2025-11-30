@@ -2,15 +2,21 @@
  * Create Group FAB
  * Floating Action Button for creating a new group
  * Hidden if device has already created a group
+ * Uses Redux state managed by groupSaga
  */
 
 import { useState, useEffect } from "react";
 import { Plus } from "lucide-react";
+import { useSelector, useDispatch } from "react-redux";
 import { CreateGroupView } from "@/components/groups/CreateGroupView";
-import { getDeviceCreatedGroup } from "@/services/group-service";
-import { getDatabase } from "@/services/db";
+import { selectHasDeviceCreatedGroup } from "@/store/slices/groupsSlice";
+import {
+  checkDeviceCreatedGroupAction,
+  watchDeviceCreatedGroupAction,
+} from "@/store/sagas/groupSaga";
 import { cn } from "@/lib/utils";
 import type { Group } from "@/domain/group";
+import type { RootState } from "@/store";
 
 interface CreateGroupFABProps {
   onGroupCreated?: (group: Group) => void;
@@ -21,50 +27,20 @@ export function CreateGroupFAB({
   onGroupCreated,
   className,
 }: CreateGroupFABProps) {
+  const dispatch = useDispatch();
+  const hasGroup = useSelector((state: RootState) =>
+    selectHasDeviceCreatedGroup(state)
+  );
   const [showCreateView, setShowCreateView] = useState(false);
-  const [hasGroup, setHasGroup] = useState<boolean | null>(null);
 
-  // Check if device already has a group and watch for changes
+  // Check and watch for device created group
   useEffect(() => {
-    let subscription: (() => void) | null = null;
-
-    const checkAndWatchGroup = async () => {
-      const deviceId = localStorage.getItem("device_id") || "";
-      if (!deviceId) {
-        setHasGroup(false);
-        return;
-      }
-
-      const db = await getDatabase();
-
-      // Initial check
-      const existingGroup = await getDeviceCreatedGroup();
-      setHasGroup(existingGroup !== null);
-
-      // Watch for changes (reactive query)
-      // Subscribe to groups collection filtered by creator_device_id
-      const query = db.groups.find({
-        selector: { creator_device_id: deviceId },
-      });
-
-      const sub = query.$.subscribe((docs) => {
-        setHasGroup(docs.length > 0);
-      });
-
-      subscription = () => sub.unsubscribe();
-    };
-
-    void checkAndWatchGroup();
-
-    return () => {
-      if (subscription) {
-        subscription();
-      }
-    };
-  }, []);
+    dispatch(checkDeviceCreatedGroupAction());
+    dispatch(watchDeviceCreatedGroupAction());
+  }, [dispatch]);
 
   // Hide FAB if device already has a group
-  if (hasGroup === true) {
+  if (hasGroup) {
     return null;
   }
 
@@ -73,8 +49,8 @@ export function CreateGroupFAB({
       <CreateGroupView
         onGroupCreated={(group) => {
           setShowCreateView(false);
-          setHasGroup(true); // Hide FAB immediately after group creation
           onGroupCreated?.(group);
+          // State will be updated by saga after group creation
         }}
         onCancel={() => setShowCreateView(false)}
       />

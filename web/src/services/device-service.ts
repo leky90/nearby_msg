@@ -99,32 +99,61 @@ export async function fetchDevice(): Promise<Device | null> {
 export async function registerDeviceMutation(
   request?: DeviceCreateRequest
 ): Promise<{ device: Device; token: string }> {
+  console.log('[device-service] registerDeviceMutation: Starting', { request });
   const deviceId = getOrCreateDeviceId();
   setDeviceId(deviceId);
+  console.log('[device-service] registerDeviceMutation: Device ID', deviceId);
+
+  log.info('Registering device', { deviceId, nickname: request?.nickname });
 
   // Register with server
-  const response = await post<{ device: Device; token: string }>('/device/register', {
-    id: deviceId,
-    ...request,
+  console.log('[device-service] registerDeviceMutation: Calling API', {
+    endpoint: '/device/register',
+    payload: { id: deviceId, ...request }
   });
-
-  // Store token
-  if (response.token) {
-    setToken(response.token);
-  }
-
-  // Store device in RxDB
+  
   try {
-    const db = await getDatabase();
-    await db.devices.upsert(response.device);
-  } catch (dbErr) {
-    // Log RxDB errors but don't fail registration if device is already registered on server
-    // The device is already registered successfully, RxDB error is non-critical
-    log.warn('Failed to store device in RxDB (non-critical)', dbErr);
-    // Continue - device is already registered on server
-  }
+    const response = await post<{ device: Device; token: string }>('/device/register', {
+      id: deviceId,
+      ...request,
+    });
 
-  return response;
+    console.log('[device-service] registerDeviceMutation: API response received', {
+      deviceId: response.device.id,
+      hasToken: !!response.token
+    });
+    log.info('Device registered with server', { deviceId: response.device.id, hasToken: !!response.token });
+
+    // Store token
+    if (response.token) {
+      setToken(response.token);
+      console.log('[device-service] registerDeviceMutation: Token stored in localStorage');
+      log.info('Token stored in localStorage');
+    } else {
+      console.warn('[device-service] registerDeviceMutation: No token in response');
+      log.warn('No token in registration response');
+    }
+
+    // Store device in RxDB
+    try {
+      const db = await getDatabase();
+      await db.devices.upsert(response.device);
+      console.log('[device-service] registerDeviceMutation: Device stored in RxDB');
+      log.info('Device stored in RxDB');
+    } catch (dbErr) {
+      // Log RxDB errors but don't fail registration if device is already registered on server
+      // The device is already registered successfully, RxDB error is non-critical
+      console.warn('[device-service] registerDeviceMutation: RxDB error (non-critical)', dbErr);
+      log.warn('Failed to store device in RxDB (non-critical)', dbErr);
+      // Continue - device is already registered on server
+    }
+
+    console.log('[device-service] registerDeviceMutation: Returning response');
+    return response;
+  } catch (error) {
+    console.error('[device-service] registerDeviceMutation: API call failed', error);
+    throw error;
+  }
 }
 
 /**

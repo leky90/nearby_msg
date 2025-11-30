@@ -1,13 +1,14 @@
 /**
  * Hook to check sync status for a group
  * Returns whether the group has pending mutations
+ * Uses Redux state managed by syncStatusSaga
  */
 
-import { useState, useEffect } from "react";
-import { getDatabase } from "@/services/db";
-import { getPendingMutationsForCollection } from "@/services/mutation-queue";
-import { log } from "@/lib/logging/logger";
-import type { Collection } from "@/domain/mutation";
+import { useEffect } from "react";
+import { useSelector, useDispatch } from "react-redux";
+import { selectGroupSyncStatus } from "@/store/slices/syncStatusSlice";
+import { startGroupSyncStatusAction, stopGroupSyncStatusAction } from "@/store/sagas/syncStatusSaga";
+import type { RootState } from "@/store";
 
 export interface GroupSyncStatus {
   hasPendingMutations: boolean;
@@ -16,117 +17,36 @@ export interface GroupSyncStatus {
 }
 
 export function useGroupSyncStatus(groupId: string): GroupSyncStatus {
-  const [status, setStatus] = useState<GroupSyncStatus>({
-    hasPendingMutations: false,
-    mutationStatus: null,
-    mutationCount: 0,
-  });
+  const dispatch = useDispatch();
+  const groupStatus = useSelector((state: RootState) => selectGroupSyncStatus(state, groupId));
 
   useEffect(() => {
-    let subscription: (() => void) | null = null;
-    let isMounted = true;
-
-    const updateStatus = async () => {
-      if (!isMounted) return;
-
-      try {
-        const db = await getDatabase();
-        
-        // Check for pending mutations for this group
-        const pendingMutations = await getPendingMutationsForCollection("groups" as Collection);
-        const groupMutations = pendingMutations.filter(
-          (mut) => mut.entity_id === groupId
-        );
-
-        // Also check syncing mutations
-        const syncingMutations = await db.mutations
-          .find({
-            selector: {
-              target_collection: "groups",
-              entity_id: groupId,
-              sync_status: "syncing",
-            },
-          })
-          .exec();
-
-        // Check failed mutations
-        const failedMutations = await db.mutations
-          .find({
-            selector: {
-              target_collection: "groups",
-              entity_id: groupId,
-              sync_status: "failed",
-            },
-          })
-          .exec();
-
-        if (!isMounted) return;
-
-        const totalCount = groupMutations.length + syncingMutations.length + failedMutations.length;
-        
-        let mutationStatus: GroupSyncStatus["mutationStatus"] = null;
-        if (failedMutations.length > 0) {
-          mutationStatus = "failed";
-        } else if (syncingMutations.length > 0) {
-          mutationStatus = "syncing";
-        } else if (groupMutations.length > 0) {
-          mutationStatus = "pending";
-        } else {
-          mutationStatus = "synced";
-        }
-
-        setStatus({
-          hasPendingMutations: totalCount > 0,
-          mutationStatus,
-          mutationCount: totalCount,
-        });
-      } catch (err) {
-        log.error("Failed to check group sync status", err, { groupId });
-      }
-    };
-
-    const setupSubscription = async () => {
-      try {
-        const db = await getDatabase();
-        
-        // Watch for changes - create subscription once
-        const query = db.mutations.find({
-          selector: {
-            target_collection: "groups",
-            entity_id: groupId,
-            sync_status: { $in: ["pending", "syncing", "failed"] },
-          },
-        });
-
-        const sub = query.$.subscribe(() => {
-          // Only update status, don't recreate subscription
-          void updateStatus();
-        });
-
-        subscription = () => sub.unsubscribe();
-        
-        // Initial status update
-        void updateStatus();
-      } catch (err) {
-        log.error("Failed to setup subscription", err, { groupId });
-      }
-    };
-
-    void setupSubscription();
-
-    // Also check periodically (less frequent)
-    const interval = setInterval(() => {
-      void updateStatus();
-    }, 5000); // Increased to 5 seconds to reduce load
-
+    // Start monitoring for this group
+    dispatch(startGroupSyncStatusAction(groupId));
+    
+    // Cleanup: stop monitoring on unmount
     return () => {
-      isMounted = false;
-      if (subscription) {
-        subscription();
-      }
-      clearInterval(interval);
+      dispatch(stopGroupSyncStatusAction(groupId));
     };
-  }, [groupId]);
+  }, [groupId, dispatch]);
 
-  return status;
+  // Map groupStatus to GroupSyncStatus interface
+  const hasPendingMutations = groupStatus.pendingCount > 0 || groupStatus.syncingCount > 0 || groupStatus.failedCount > 0;
+  
+  let mutationStatus: GroupSyncStatus["mutationStatus"] = null;
+  if (groupStatus.failedCount > 0) {
+    mutationStatus = "failed";
+  } else if (groupStatus.syncingCount > 0) {
+    mutationStatus = "syncing";
+  } else if (groupStatus.pendingCount > 0) {
+    mutationStatus = "pending";
+  } else {
+    mutationStatus = "synced";
+  }
+
+  return {
+    hasPendingMutations,
+    mutationStatus,
+    mutationCount: groupStatus.pendingCount + groupStatus.syncingCount + groupStatus.failedCount,
+  };
 }

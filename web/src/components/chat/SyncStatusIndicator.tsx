@@ -1,68 +1,42 @@
 /**
  * Sync Status Indicator Component
  * Shows message sync status (online/offline/syncing/pending)
+ * Uses Redux state managed by syncStatusSaga
  */
 
 import { Wifi, WifiOff, Loader2 } from "lucide-react";
-import { useState, useEffect } from "react";
-import { getDatabase } from "@/services/db";
+import { useEffect } from "react";
+import { useSelector, useDispatch } from "react-redux";
+import { selectGroupSyncStatus } from "@/store/slices/syncStatusSlice";
+import {
+  startGroupSyncStatusAction,
+  stopGroupSyncStatusAction,
+} from "@/store/sagas/syncStatusSaga";
 import { t } from "@/lib/i18n";
-import { log } from "@/lib/logging/logger";
+import type { RootState } from "@/store";
 
 export interface SyncStatusIndicatorProps {
   groupId: string;
 }
 
-type SyncStatus = "online" | "offline" | "syncing" | "pending";
-
 export function SyncStatusIndicator({ groupId }: SyncStatusIndicatorProps) {
-  const [syncStatus, setSyncStatus] = useState<SyncStatus>("online");
-  const [pendingCount, setPendingCount] = useState(0);
+  const dispatch = useDispatch();
+  const groupStatus = useSelector((state: RootState) =>
+    selectGroupSyncStatus(state, groupId)
+  );
 
   useEffect(() => {
-    const checkSyncStatus = async () => {
-      const isOnline = navigator.onLine;
-      if (!isOnline) {
-        setSyncStatus("offline");
-        return;
-      }
+    // Start monitoring for this group
+    dispatch(startGroupSyncStatusAction(groupId));
 
-      try {
-        const db = await getDatabase();
-        const pending = await db.messages
-          .find({
-            selector: {
-              group_id: groupId,
-              sync_status: { $ne: "synced" },
-            },
-          })
-          .exec();
-
-        const count = pending.length;
-        setPendingCount(count);
-
-        if (count > 0) {
-          const syncing = pending.some((doc) => {
-            const data = doc.toJSON();
-            return data.sync_status === "syncing";
-          });
-          setSyncStatus(syncing ? "syncing" : "pending");
-        } else {
-          setSyncStatus("online");
-        }
-      } catch (err) {
-        log.error("Failed to check sync status", err, { groupId });
-        setSyncStatus("offline");
-      }
+    // Cleanup: stop monitoring on unmount
+    return () => {
+      dispatch(stopGroupSyncStatusAction(groupId));
     };
-
-    checkSyncStatus();
-    const interval = setInterval(checkSyncStatus, 2000);
-    return () => clearInterval(interval);
-  }, [groupId]);
+  }, [groupId, dispatch]);
 
   const getSyncIcon = () => {
-    switch (syncStatus) {
+    switch (groupStatus.messageStatus) {
       case "offline":
         return <WifiOff className="size-3.5 text-muted-foreground" />;
       case "syncing":
@@ -75,13 +49,15 @@ export function SyncStatusIndicator({ groupId }: SyncStatusIndicatorProps) {
   };
 
   const getSyncLabel = () => {
-    switch (syncStatus) {
+    switch (groupStatus.messageStatus) {
       case "offline":
         return t("component.chatHeader.offline");
       case "syncing":
         return t("component.chatHeader.syncing");
       case "pending":
-        return t("component.chatHeader.pending", { count: pendingCount });
+        return t("component.chatHeader.pending", {
+          count: groupStatus.pendingCount,
+        });
       default:
         return t("component.chatHeader.synced");
     }

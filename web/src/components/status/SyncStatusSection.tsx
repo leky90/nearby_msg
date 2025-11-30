@@ -1,9 +1,10 @@
 /**
  * Sync Status Section
  * Displays synchronization status for all data types
+ * Uses Redux state managed by syncStatusSaga
  */
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   RefreshCw,
   CheckCircle2,
@@ -11,9 +12,13 @@ import {
   AlertCircle,
   Loader2,
 } from "lucide-react";
-import { getMutationCounts } from "@/services/mutation-queue";
-import { getDatabase } from "@/services/db";
-import { triggerImmediateSync } from "@/services/replication-sync";
+import { useSelector, useDispatch } from "react-redux";
+import {
+  selectMutationSyncStatus,
+  selectMessageSyncStatus,
+  selectOverallSyncStatus,
+} from "@/store/slices/syncStatusSlice";
+import { refreshSyncStatusAction, triggerManualSyncAction } from "@/store/sagas/syncStatusSaga";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -24,132 +29,39 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { log } from "@/lib/logging/logger";
-
-interface SyncStatus {
-  mutations: {
-    pending: number;
-    syncing: number;
-    failed: number;
-  };
-  messages: {
-    pending: number;
-    syncing: number;
-    failed: number;
-  };
-  overall: "synced" | "pending" | "syncing" | "failed";
-}
+import type { RootState } from "@/store";
 
 export function SyncStatusSection() {
-  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const dispatch = useDispatch();
+  const mutationStatus = useSelector((state: RootState) => selectMutationSyncStatus(state));
+  const messageStatus = useSelector((state: RootState) => selectMessageSyncStatus(state));
+  const overallStatus = useSelector((state: RootState) => selectOverallSyncStatus(state));
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
 
-  const loadSyncStatus = async () => {
-    try {
-      const db = await getDatabase();
-
-      // Get mutation counts
-      const mutationCounts = await getMutationCounts();
-
-      // Get message counts
-      const [pendingMessages, syncingMessages, failedMessages] =
-        await Promise.all([
-          db.messages.find({ selector: { sync_status: "pending" } }).exec(),
-          db.messages.find({ selector: { sync_status: "syncing" } }).exec(),
-          db.messages.find({ selector: { sync_status: "failed" } }).exec(),
-        ]);
-
-      const status: SyncStatus = {
-        mutations: {
-          pending: mutationCounts.pending,
-          syncing: mutationCounts.syncing,
-          failed: mutationCounts.failed,
-        },
-        messages: {
-          pending: pendingMessages.length,
-          syncing: syncingMessages.length,
-          failed: failedMessages.length,
-        },
-        overall: "synced",
-      };
-
-      // Determine overall status
-      const totalPending = status.mutations.pending + status.messages.pending;
-      const totalSyncing = status.mutations.syncing + status.messages.syncing;
-      const totalFailed = status.mutations.failed + status.messages.failed;
-
-      if (totalFailed > 0) {
-        status.overall = "failed";
-      } else if (totalSyncing > 0) {
-        status.overall = "syncing";
-      } else if (totalPending > 0) {
-        status.overall = "pending";
-      } else {
-        status.overall = "synced";
-      }
-
-      setSyncStatus(status);
-    } catch (err) {
-      log.error("Failed to load sync status", err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
+  // Refresh status on mount (monitoring is auto-started by saga)
   useEffect(() => {
-    void loadSyncStatus();
-
-    // Refresh every 3 seconds
-    const interval = setInterval(() => {
-      void loadSyncStatus();
-    }, 3000);
-
-    return () => clearInterval(interval);
-  }, []);
+    dispatch(refreshSyncStatusAction());
+  }, [dispatch]);
 
   const handleManualSync = async () => {
     setIsRefreshing(true);
     try {
-      await triggerImmediateSync();
+      dispatch(triggerManualSyncAction());
       // Wait a bit for sync to complete
       await new Promise((resolve) => setTimeout(resolve, 1000));
-      await loadSyncStatus();
-    } catch (err) {
-      log.error("Failed to trigger sync", err);
+      dispatch(refreshSyncStatusAction());
     } finally {
       setIsRefreshing(false);
     }
   };
 
-  if (isLoading) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Trạng thái đồng bộ</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center justify-center py-4">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (!syncStatus) {
-    return null;
-  }
-
-  const totalPending =
-    syncStatus.mutations.pending + syncStatus.messages.pending;
-  const totalSyncing =
-    syncStatus.mutations.syncing + syncStatus.messages.syncing;
-  const totalFailed = syncStatus.mutations.failed + syncStatus.messages.failed;
+  const totalPending = mutationStatus.pending + messageStatus.pending;
+  const totalSyncing = mutationStatus.syncing + messageStatus.syncing;
+  const totalFailed = mutationStatus.failed + messageStatus.failed;
   const hasPending = totalPending > 0 || totalSyncing > 0 || totalFailed > 0;
 
   const getOverallIcon = () => {
-    switch (syncStatus.overall) {
+    switch (overallStatus.status) {
       case "synced":
         return <CheckCircle2 className="h-5 w-5 text-green-600" />;
       case "syncing":
@@ -158,11 +70,13 @@ export function SyncStatusSection() {
         return <Clock className="h-5 w-5 text-yellow-600" />;
       case "failed":
         return <AlertCircle className="h-5 w-5 text-red-600" />;
+      case "offline":
+        return <AlertCircle className="h-5 w-5 text-gray-600" />;
     }
   };
 
   const getOverallLabel = () => {
-    switch (syncStatus.overall) {
+    switch (overallStatus.status) {
       case "synced":
         return "Đã đồng bộ";
       case "syncing":
@@ -171,6 +85,8 @@ export function SyncStatusSection() {
         return "Đang chờ";
       case "failed":
         return "Lỗi đồng bộ";
+      case "offline":
+        return "Offline";
     }
   };
 
@@ -189,10 +105,11 @@ export function SyncStatusSection() {
             <span
               className={cn(
                 "text-sm font-medium",
-                syncStatus.overall === "synced" && "text-green-600",
-                syncStatus.overall === "syncing" && "text-blue-600",
-                syncStatus.overall === "pending" && "text-yellow-600",
-                syncStatus.overall === "failed" && "text-red-600"
+                overallStatus.status === "synced" && "text-green-600",
+                overallStatus.status === "syncing" && "text-blue-600",
+                overallStatus.status === "pending" && "text-yellow-600",
+                overallStatus.status === "failed" && "text-red-600",
+                overallStatus.status === "offline" && "text-gray-600"
               )}
             >
               {getOverallLabel()}
@@ -205,31 +122,31 @@ export function SyncStatusSection() {
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium">Thay đổi đang chờ</span>
-            {(syncStatus.mutations.pending > 0 ||
-              syncStatus.mutations.syncing > 0 ||
-              syncStatus.mutations.failed > 0) && (
+            {(mutationStatus.pending > 0 ||
+              mutationStatus.syncing > 0 ||
+              mutationStatus.failed > 0) && (
               <div className="flex items-center gap-2">
-                {syncStatus.mutations.pending > 0 && (
+                {mutationStatus.pending > 0 && (
                   <Badge variant="outline" className="text-xs">
-                    {syncStatus.mutations.pending} chờ
+                    {mutationStatus.pending} chờ
                   </Badge>
                 )}
-                {syncStatus.mutations.syncing > 0 && (
+                {mutationStatus.syncing > 0 && (
                   <Badge variant="outline" className="text-xs text-blue-600">
-                    {syncStatus.mutations.syncing} đang sync
+                    {mutationStatus.syncing} đang sync
                   </Badge>
                 )}
-                {syncStatus.mutations.failed > 0 && (
+                {mutationStatus.failed > 0 && (
                   <Badge variant="destructive" className="text-xs">
-                    {syncStatus.mutations.failed} lỗi
+                    {mutationStatus.failed} lỗi
                   </Badge>
                 )}
               </div>
             )}
           </div>
-          {syncStatus.mutations.pending === 0 &&
-            syncStatus.mutations.syncing === 0 &&
-            syncStatus.mutations.failed === 0 && (
+          {mutationStatus.pending === 0 &&
+            mutationStatus.syncing === 0 &&
+            mutationStatus.failed === 0 && (
               <p className="text-xs text-muted-foreground">
                 Không có thay đổi nào đang chờ
               </p>
@@ -240,31 +157,31 @@ export function SyncStatusSection() {
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium">Tin nhắn đang chờ</span>
-            {(syncStatus.messages.pending > 0 ||
-              syncStatus.messages.syncing > 0 ||
-              syncStatus.messages.failed > 0) && (
+            {(messageStatus.pending > 0 ||
+              messageStatus.syncing > 0 ||
+              messageStatus.failed > 0) && (
               <div className="flex items-center gap-2">
-                {syncStatus.messages.pending > 0 && (
+                {messageStatus.pending > 0 && (
                   <Badge variant="outline" className="text-xs">
-                    {syncStatus.messages.pending} chờ
+                    {messageStatus.pending} chờ
                   </Badge>
                 )}
-                {syncStatus.messages.syncing > 0 && (
+                {messageStatus.syncing > 0 && (
                   <Badge variant="outline" className="text-xs text-blue-600">
-                    {syncStatus.messages.syncing} đang sync
+                    {messageStatus.syncing} đang sync
                   </Badge>
                 )}
-                {syncStatus.messages.failed > 0 && (
+                {messageStatus.failed > 0 && (
                   <Badge variant="destructive" className="text-xs">
-                    {syncStatus.messages.failed} lỗi
+                    {messageStatus.failed} lỗi
                   </Badge>
                 )}
               </div>
             )}
           </div>
-          {syncStatus.messages.pending === 0 &&
-            syncStatus.messages.syncing === 0 &&
-            syncStatus.messages.failed === 0 && (
+          {messageStatus.pending === 0 &&
+            messageStatus.syncing === 0 &&
+            messageStatus.failed === 0 && (
               <p className="text-xs text-muted-foreground">
                 Tất cả tin nhắn đã được đồng bộ
               </p>

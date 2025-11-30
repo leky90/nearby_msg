@@ -58,7 +58,7 @@ export function useLocationInput(options: UseLocationInputOptions = {}) {
     }
   }, [deviceLocation, location, hasBeenReset]);
 
-  const handleRequestGPS = useCallback(async () => {
+  const handleRequestGPS = useCallback(async (showSuccessToast = true) => {
     if (!isGeolocationAvailable()) {
       setLocationError("Trình duyệt của bạn không hỗ trợ GPS.");
       setShowManualInput(true);
@@ -110,8 +110,9 @@ export function useLocationInput(options: UseLocationInputOptions = {}) {
         
         onLocationSet?.(newLocation);
         
-        // Only show toast if location actually changed
-        if (locationChanged) {
+        // Only show toast if location actually changed AND showSuccessToast is true
+        // This prevents duplicate toasts when called from multiple places
+        if (locationChanged && showSuccessToast) {
           showToast("Đã cập nhật vị trí từ GPS thành công!", "success");
         }
       } else {
@@ -210,7 +211,7 @@ export function useLocationInput(options: UseLocationInputOptions = {}) {
     setHasBeenReset(true);
     
     // Clear from app store
-    setDeviceLocation(null);
+    dispatch(setDeviceLocation(null));
     
     // Clear from localStorage if saveToStorage is enabled
     if (saveToStorage) {

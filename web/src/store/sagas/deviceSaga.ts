@@ -1,18 +1,20 @@
-import { call, put, takeEvery } from 'redux-saga/effects';
+import { call, put, takeEvery, fork, all } from 'redux-saga/effects';
 import type { Device, DeviceCreateRequest, DeviceUpdateRequest } from '@/domain/device';
 import {
-    fetchDevice,
-    registerDeviceMutation,
-    updateDeviceNickname,
+  fetchDevice,
+  registerDeviceMutation,
+  updateDeviceNickname,
 } from '@/services/device-service';
 import { setToken } from '@/services/api';
+import { getToken } from '@/services/device-storage';
 import {
-    setDevice,
-    setDeviceLoading,
-    setDeviceError,
-    setJWTToken,
-    clearDevice,
+  setDevice,
+  setDeviceLoading,
+  setDeviceError,
+  setJWTToken,
+  clearDevice,
 } from '../slices/deviceSlice';
+import { setOnboardingRequired } from '../slices/appSlice';
 import { log } from '@/lib/logging/logger';
 
 // Action types
@@ -47,11 +49,16 @@ function* handleFetchDevice() {
     
     if (device) {
       yield put(setDevice(device));
-      // Get token from localStorage if available
-      const token = localStorage.getItem('jwt_token');
+      // Get token using helper function (synchronous, no yield needed)
+      const token = getToken();
       if (token) {
         yield put(setJWTToken(token));
         setToken(token);
+      }
+      
+      // If device has nickname, trigger service startup via appSaga
+      if (device.nickname) {
+        yield put({ type: 'app/startServices' });
       }
     } else {
       yield put(setDevice(null));
@@ -73,18 +80,34 @@ function* handleRegisterDevice(action: { type: string; payload?: DeviceCreateReq
   try {
     yield put(setDeviceLoading(true));
     yield put(setDeviceError(null));
+    log.info('Starting device registration', { payload: action.payload });
     
     const response: { device: Device; token: string } = yield call(
       registerDeviceMutation,
       action.payload
     );
     
+    log.info('Device registration successful', { deviceId: response.device.id, hasToken: !!response.token });
+    
     yield put(setDevice(response.device));
     yield put(setJWTToken(response.token));
     setToken(response.token);
+    
+    // Clear onboarding requirement since device is now registered
+    yield put(setOnboardingRequired(false));
+    
+    // If device has nickname, trigger service startup
+    if (response.device.nickname) {
+      yield put({ type: 'app/startServices' });
+    }
+    
+    log.info('Device and token set in Redux state');
   } catch (error) {
     log.error('Failed to register device', error);
-    yield put(setDeviceError(error instanceof Error ? error.message : 'Failed to register device'));
+    const errorMessage = error instanceof Error ? error.message : 'Failed to register device';
+    yield put(setDeviceError(errorMessage));
+    // Re-throw to allow OnboardingScreen to handle
+    throw error;
   } finally {
     yield put(setDeviceLoading(false));
   }
@@ -121,8 +144,11 @@ function* handleClearDevice() {
 
 // Root saga
 export function* deviceSaga() {
-  yield watchFetchDevice();
-  yield watchRegisterDevice();
-  yield watchUpdateDevice();
-  yield watchClearDevice();
+  // Use fork to run all watchers in parallel (non-blocking)
+  yield all([
+    fork(watchFetchDevice),
+    fork(watchRegisterDevice),
+    fork(watchUpdateDevice),
+    fork(watchClearDevice),
+  ]);
 }
