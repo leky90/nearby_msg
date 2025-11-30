@@ -22,7 +22,7 @@ export interface StatusSummary {
 }
 
 /**
- * Mutation function for updating status (for TanStack Query)
+ * Mutation function for updating status (used by Redux Saga)
  * Supports offline-first: queues mutation when offline, calls API when online
  * @param variables - Status update variables
  * @returns Updated status (optimistic when offline)
@@ -78,7 +78,7 @@ export async function updateStatus(
 }
 
 /**
- * Query function for fetching status (for TanStack Query)
+ * Query function for fetching status (used by Redux Saga)
  * Reads from RxDB first, then falls back to API if not found
  * @returns User status or null if not set
  */

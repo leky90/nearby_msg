@@ -1,11 +1,10 @@
 /**
  * useMessages Hook
  * Reactive hook for querying messages from RxDB
- * Uses TanStack Query for initial load and caching, with reactive subscriptions for real-time updates
+ * Uses Redux Saga for initial load, with reactive subscriptions for real-time updates
  */
 
 import { useEffect, useState, useRef, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { useSelector, useDispatch } from 'react-redux';
 import type { Message } from '../domain/message';
 import { watchGroupMessages, getDatabase } from '../services/db';
@@ -39,7 +38,7 @@ export interface UseMessagesResult {
 }
 
 /**
- * Query function for fetching messages from RxDB (for TanStack Query)
+ * Query function for fetching messages from RxDB
  */
 async function fetchMessages(groupId: string, limit: number): Promise<Message[]> {
   const db = await getDatabase();
@@ -85,7 +84,7 @@ function areMessagesEqual(prev: Message[], next: Message[]): boolean {
 /**
  * useMessages hook
  * Provides reactive message queries from RxDB
- * Uses TanStack Query for initial load and caching, with reactive subscriptions for real-time updates
+ * Uses Redux Saga for initial load, with reactive subscriptions for real-time updates
  * Optimized to prevent unnecessary re-renders when messages haven't actually changed
  */
 export function useMessages({
@@ -109,27 +108,20 @@ export function useMessages({
     selectMessagesError(state, groupId)
   );
 
-  // Use TanStack Query for initial load and caching
-  const {
-    data: initialMessages,
-    isLoading: queryLoading,
-    error: queryError,
-    refetch: refresh,
-  } = useQuery<Message[]>({
-    queryKey: ['messages', groupId, limit],
-    queryFn: () => fetchMessages(groupId, limit),
-    enabled: !!groupId,
-    staleTime: 30 * 1000, // 30 seconds (messages change frequently)
-    retry: 2,
-  });
-
-  // Update messages when query data changes (only if different)
+  // Fetch initial messages using Redux Saga
   useEffect(() => {
-    if (initialMessages && !areMessagesEqual(messagesRef.current, initialMessages)) {
-      messagesRef.current = initialMessages;
-      setMessages(initialMessages);
+    if (groupId) {
+      dispatch(syncMessagesAction(groupId));
+      // Also load from RxDB directly for immediate display
+      fetchMessages(groupId, limit).then((initialMessages) => {
+        if (initialMessages.length > 0) {
+          dispatch({ type: 'messages/setMessages', payload: { groupId, messages: initialMessages } });
+        }
+      }).catch((err) => {
+        log.error('Failed to fetch initial messages', err, { groupId });
+      });
     }
-  }, [initialMessages]);
+  }, [groupId, limit, dispatch]);
 
   // Set up reactive subscription for real-time updates
   useEffect(() => {
@@ -179,29 +171,15 @@ export function useMessages({
 
   // Use Redux messages if available, otherwise use local state
   const finalMessages = reduxMessages.length > 0 ? reduxMessages : messages;
-  
-  // Sync RxDB updates to Redux
-  useEffect(() => {
-    if (initialMessages && initialMessages.length > 0) {
-      dispatch({ type: 'messages/setMessages', payload: { groupId, messages: initialMessages } });
-    }
-  }, [initialMessages, groupId, dispatch]);
 
   // Memoize messages to prevent unnecessary re-renders
   const memoizedMessages = useMemo(() => finalMessages, [finalMessages]);
 
-  // Determine loading state (Redux or query)
-  const isLoading = reduxLoading || queryLoading;
+  // Determine loading state (Redux)
+  const isLoading = reduxLoading;
   
-  // Determine error state (Redux or query)
-  const error: Error | null =
-    reduxError
-      ? new Error(reduxError)
-      : queryError instanceof Error
-        ? queryError
-        : queryError
-          ? new Error(String(queryError))
-          : null;
+  // Determine error state (Redux)
+  const error: Error | null = reduxError ? new Error(reduxError) : null;
 
   return {
     messages: memoizedMessages,
@@ -209,7 +187,6 @@ export function useMessages({
     error,
     refresh: async () => {
       dispatch(syncMessagesAction(groupId));
-      await refresh();
     },
   };
 }

@@ -1,11 +1,15 @@
 /**
  * SOS Message Component
- * Displays SOS messages with visual distinction
+ * Displays SOS messages with visual distinction using Taki UI Message
  */
 
 import type { Message } from '../../domain/message';
 import { t } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
+import {
+  Message as TakiMessage,
+  MessageContent,
+} from '@/components/ai-elements/message';
 
 export interface SOSMessageProps {
   /** SOS message to display */
@@ -45,22 +49,30 @@ export function SOSMessage({ message, isOwn = false }: SOSMessageProps) {
   const sosIcon = SOS_TYPE_ICONS[sosType] || '🚨';
 
   return (
-    <div className={cn(
-      "rounded-lg border-2 border-sos bg-sos/10 p-4 shadow-lg",
-      isOwn && "border-sos bg-sos/20"
-    )}>
-      <div className="flex items-center gap-2 mb-2">
-        <span className="text-2xl">{sosIcon}</span>
-        <span className="font-bold text-sos text-heading-2 leading-heading-2">{sosLabel}</span>
-        <span className="ml-auto rounded-full bg-sos px-3 py-1 text-caption leading-caption font-bold text-white">
-          {t("common.urgent") || "KHẨN CẤP"}
-        </span>
-      </div>
-      <div className="text-body leading-body font-medium mb-2">{message.content}</div>
-      <div className="text-caption leading-caption text-muted-foreground">
-        {new Date(message.created_at).toLocaleTimeString()}
-      </div>
-    </div>
+    <TakiMessage
+      from={isOwn ? "user" : "assistant"}
+      className={cn(
+        "rounded-lg border-2 border-sos bg-sos/10 shadow-lg",
+        isOwn && "border-sos bg-sos/20"
+      )}
+    >
+      <MessageContent
+        variant="flat"
+        className="p-4"
+      >
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-2xl">{sosIcon}</span>
+          <span className="font-bold text-sos text-heading-2 leading-heading-2">{sosLabel}</span>
+          <span className="ml-auto rounded-full bg-sos px-3 py-1 text-caption leading-caption font-bold text-white">
+            {t("common.urgent") || "KHẨN CẤP"}
+          </span>
+        </div>
+        <div className="text-body leading-body font-medium mb-2">{message.content}</div>
+        <div className="text-caption leading-caption text-muted-foreground">
+          {new Date(message.created_at).toLocaleTimeString()}
+        </div>
+      </MessageContent>
+    </TakiMessage>
   );
 }
 

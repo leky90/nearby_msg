@@ -1,7 +1,7 @@
 /**
  * Device Service
  * Handles device-related operations
- * Query functions for TanStack Query integration
+ * Functions for Redux Saga integration
  */
 
 import type { Device, DeviceCreateRequest } from '../domain/device';

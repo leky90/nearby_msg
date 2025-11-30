@@ -10,6 +10,7 @@ import {
   connectWebSocketAction,
   subscribeToGroupsAction,
 } from "@/store/sagas/websocketSaga";
+import { toggleFavoriteAction } from "@/store/sagas/groupSaga";
 import { selectIsWebSocketConnected } from "@/store/slices/websocketSlice";
 import { selectJWTToken } from "@/store/slices/deviceSlice";
 import type { RootState } from "@/store";
@@ -26,7 +27,6 @@ import {
   setActiveTab,
   setCurrentChatGroupId,
 } from "@/store/slices/navigationSlice";
-import { useQueryClient } from "@tanstack/react-query";
 import { RefreshCw, ArrowLeft } from "lucide-react";
 import type { Group } from "../domain/group";
 import { log } from "../lib/logging/logger";
@@ -51,7 +51,6 @@ export interface ChatPageProps {
 export function ChatPage({ groupId }: ChatPageProps) {
   const navigate = useNavigate();
   const dispatch = useDispatch();
-  const queryClient = useQueryClient();
   const [group, setGroup] = useState<Group | null>(null);
   const [isLoadingGroup, setIsLoadingGroup] = useState(true);
   const [pinnedDrawerOpen, setPinnedDrawerOpen] = useState(false);
@@ -285,19 +284,8 @@ export function ChatPage({ groupId }: ChatPageProps) {
                 showToast("Đã xóa khỏi danh sách quan tâm", "success");
               }
 
-              // Invalidate queries to refresh UI
-              await queryClient.invalidateQueries({
-                queryKey: ["favorites"],
-                exact: false,
-              });
-              await queryClient.invalidateQueries({
-                queryKey: ["favorite-groups"],
-                exact: false,
-              });
-              await queryClient.invalidateQueries({
-                queryKey: ["group-details"],
-                exact: false,
-              });
+              // Dispatch action to update Redux state (favorites are managed via toggleFavoriteAction)
+              dispatch(toggleFavoriteAction(groupId));
             } catch (err) {
               log.error("Failed to toggle favorite", err, { groupId });
               const errorMessage =

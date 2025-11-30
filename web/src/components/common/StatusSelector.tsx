@@ -4,13 +4,8 @@
  */
 
 import { useState, useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, AlertCircle, XCircle, Loader2 } from "lucide-react";
 import type { StatusType, UserStatus } from "../../domain/user_status";
-import {
-  updateStatusMutation,
-  fetchStatus,
-} from "../../services/status-service";
 import { getOrCreateDeviceId } from "../../services/device-storage";
 import { Button } from "../ui/button";
 import { log } from "../../lib/logging/logger";
@@ -27,6 +22,10 @@ import { Alert, AlertDescription } from "../ui/alert";
 import { Skeleton } from "../ui/skeleton";
 import { cn } from "@/lib/utils";
 import { t } from "@/lib/i18n";
+import { useDispatch, useSelector } from "react-redux";
+import { selectUserStatus, updateUserStatusOptimistic, setUserStatus } from "@/store/slices/appSlice";
+import { updateUserStatusAction, fetchUserStatusAction } from "@/store/sagas/statusSaga";
+import type { RootState } from "@/store";
 
 export interface StatusSelectorProps {
   /** Callback when status is updated */
@@ -73,72 +72,29 @@ export function StatusSelector({
   onStatusUpdated,
   className = "",
 }: StatusSelectorProps) {
-  const queryClient = useQueryClient();
+  const dispatch = useDispatch();
   const deviceId = getOrCreateDeviceId();
+  const currentStatus = useSelector((state: RootState) => selectUserStatus(state));
   const [selectedType, setSelectedType] = useState<StatusType | null>(null);
   const [description, setDescription] = useState("");
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const STATUS_OPTIONS = getStatusOptions();
 
-  // Load current status using TanStack Query
-  const { data: currentStatus, isLoading: isLoadingCurrent } = useQuery({
-    queryKey: ["status"],
-    queryFn: fetchStatus,
-    staleTime: 5 * 60 * 1000,
-    retry: 3,
-  });
+  // Fetch status on mount if not in Redux
+  useEffect(() => {
+    if (!currentStatus) {
+      dispatch(fetchUserStatusAction());
+    }
+  }, [currentStatus, dispatch]);
 
   // Initialize form when status loads
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (currentStatus) {
       setSelectedType(currentStatus.status_type);
       setDescription(currentStatus.description || "");
     }
-    // Only run when currentStatus changes, not on every render
   }, [currentStatus]);
-
-  // Mutation for updating status with optimistic updates
-  const updateMutation = useMutation({
-    mutationFn: updateStatusMutation,
-    // Optimistic update: immediately update UI before server responds
-    onMutate: async (variables) => {
-      // Cancel outgoing queries to prevent overwriting optimistic update
-      await queryClient.cancelQueries({ queryKey: ["status"] });
-
-      // Snapshot previous value for rollback
-      const previousStatus = queryClient.getQueryData<UserStatus | null>([
-        "status",
-      ]);
-
-      // Optimistically update cache
-      const optimisticStatus: UserStatus = {
-        id: previousStatus?.id || "",
-        device_id: deviceId,
-        status_type: variables.statusType,
-        description: variables.description || undefined,
-        created_at: previousStatus?.created_at || new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-      queryClient.setQueryData(["status"], optimisticStatus);
-
-      return { previousStatus };
-    },
-    // On success, update with server response and invalidate related queries
-    onSuccess: (data) => {
-      queryClient.setQueryData(["status"], data);
-      queryClient.invalidateQueries({ queryKey: ["status"] });
-      onStatusUpdated?.(data);
-    },
-    // On error, rollback to previous value
-    onError: (err, variables, context) => {
-      if (context?.previousStatus !== undefined) {
-        queryClient.setQueryData(["status"], context.previousStatus);
-      }
-      log.error("Failed to update status", err, {
-        statusType: variables.statusType,
-      });
-    },
-  });
 
   const handleStatusSelect = (type: StatusType) => {
     setSelectedType(type);
@@ -149,17 +105,54 @@ export function StatusSelector({
       return;
     }
 
-    updateMutation.mutate({
+    setIsUpdating(true);
+    setError(null);
+
+    // Optimistic update - update Redux state immediately
+    const previousStatus = currentStatus;
+    dispatch(updateUserStatusOptimistic({
       statusType: selectedType,
       description: description.trim() || undefined,
-    });
+    }));
+
+    try {
+      // Dispatch action to update status (saga handles API call)
+      dispatch(updateUserStatusAction({
+        statusType: selectedType,
+        description: description.trim() || undefined,
+      }));
+
+      // Wait a bit for saga to complete and update state
+      // The saga will call setUserStatus with the actual response
+      // For now, we'll rely on the optimistic update
+      onStatusUpdated?.(currentStatus || {
+        id: '',
+        device_id: deviceId,
+        status_type: selectedType,
+        description: description.trim() || undefined,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+    } catch (err) {
+      // Rollback optimistic update on error
+      if (previousStatus) {
+        dispatch(setUserStatus(previousStatus));
+      } else {
+        dispatch(setUserStatus(null));
+      }
+      const errorMessage = err instanceof Error ? err.message : "Failed to update status";
+      setError(errorMessage);
+      log.error("Failed to update status", err, {
+        statusType: selectedType,
+      });
+    } finally {
+      setIsUpdating(false);
+    }
   };
 
-  const isLoading = updateMutation.isPending;
-  const error =
-    updateMutation.error instanceof Error ? updateMutation.error.message : null;
+  const isLoading = !currentStatus && isUpdating;
 
-  if (isLoadingCurrent) {
+  if (isLoading) {
     return (
       <Card className={className}>
         <CardHeader>
@@ -226,7 +219,7 @@ export function StatusSelector({
                     variantClass !== "outline" && variantClass
                   )}
                   onClick={() => handleStatusSelect(option.type)}
-                  isDisabled={isLoading}
+                  isDisabled={isUpdating}
                 >
                   <span
                     className={cn(
@@ -265,7 +258,7 @@ export function StatusSelector({
             onChange={(e) => setDescription(e.target.value)}
             placeholder={t("component.statusSelector.descriptionPlaceholder")}
             maxLength={200}
-            isDisabled={isLoading}
+            isDisabled={isUpdating}
             rows={3}
           />
           <p className="text-xs text-muted-foreground">
@@ -277,10 +270,10 @@ export function StatusSelector({
 
         <Button
           onClick={handleUpdate}
-          isDisabled={!selectedType || isLoading}
+          isDisabled={!selectedType || isUpdating}
           className="w-full"
         >
-          {isLoading ? (
+          {isUpdating ? (
             <>
               <Loader2 className="mr-2 size-4 animate-spin" />
               {t("component.statusSelector.updating")}

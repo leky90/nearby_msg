@@ -46,6 +46,31 @@ const appSlice = createSlice({
     setUserStatus: (state, action: PayloadAction<UserStatus | null>) => {
       state.userStatus = action.payload;
     },
+    updateUserStatusOptimistic: (
+      state,
+      action: PayloadAction<{ statusType: string; description?: string }>
+    ) => {
+      // Optimistic update - update UI immediately before API call completes
+      if (state.userStatus) {
+        state.userStatus = {
+          ...state.userStatus,
+          status_type: action.payload.statusType as UserStatus['status_type'],
+          description: action.payload.description,
+          updated_at: new Date().toISOString(),
+        };
+      } else {
+        // Create new status if none exists
+        const deviceId = localStorage.getItem('device_id') || '';
+        state.userStatus = {
+          id: '',
+          device_id: deviceId,
+          status_type: action.payload.statusType as UserStatus['status_type'],
+          description: action.payload.description,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+      }
+    },
     setSelectedRadius: (state, action: PayloadAction<RadiusOption>) => {
       state.selectedRadius = action.payload;
     },
@@ -66,6 +91,7 @@ const appSlice = createSlice({
 export const {
   setNetworkStatus,
   setUserStatus,
+  updateUserStatusOptimistic,
   setSelectedRadius,
   setDeviceLocation,
   updateDeviceLocationAddress,

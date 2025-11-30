@@ -25,6 +25,11 @@ import { calculateDistance } from "../../domain/group";
 import { formatDistance as formatDistanceUtil } from "../../utils/distance";
 import { getCurrentLocation } from "../../services/location-service";
 import { log } from "../../lib/logging/logger";
+import {
+  Message as TakiMessage,
+  MessageAvatar,
+  MessageContent,
+} from "@/components/ai-elements/message";
 
 export interface MessageBubbleProps {
   /** Message to display */
@@ -222,42 +227,43 @@ export const MessageBubble = memo(
     const senderName =
       senderDevice?.nickname || `Device ${message.device_id.substring(0, 6)}`;
 
+    // Get avatar source - use device nickname initials or default
+    const avatarSrc = ""; // Device type doesn't have avatar property, using initials fallback
+
     return (
-      <div
-        className={cn(
-          "flex gap-2 group",
-          isOwn && "flex-row-reverse",
-          !isFirstInGroup && "mt-0.5",
-          className
-        )}
-      >
-        {/* Message content */}
-        <div className={cn("flex flex-col max-w-[75%]", isOwn && "items-end")}>
-          {/* Sender name and distance - only for others and first in group */}
-          {!isOwn && isFirstInGroup && (
-            <div className="flex items-center gap-2 mb-1 px-1">
-              <span className="text-xs text-muted-foreground font-medium">
-                {senderName}
+      <div className={cn("group", !isFirstInGroup && "mt-0.5", className)}>
+        {/* Sender name and distance - only for others and first in group */}
+        {!isOwn && isFirstInGroup && (
+          <div className="flex items-center gap-2 mb-1 px-1">
+            <span className="text-xs text-muted-foreground font-medium">
+              {senderName}
+            </span>
+            {distance !== null && (
+              <span className="text-xs text-muted-foreground/70">
+                • {formatDistanceUtil(distance)}
               </span>
-              {distance !== null && (
-                <span className="text-xs text-muted-foreground/70">
-                  • {formatDistanceUtil(distance)}
-                </span>
-              )}
-            </div>
+            )}
+          </div>
+        )}
+
+        {/* Taki UI Message component */}
+        <TakiMessage
+          from={isOwn ? "user" : "assistant"}
+          className={cn(
+            onClick && "cursor-pointer",
+            pinned && "ring-2 ring-yellow-400 ring-offset-1 rounded-lg"
+          )}
+          onClick={handleClick}
+        >
+          {/* Avatar - only show for others and first in group */}
+          {!isOwn && isFirstInGroup && (
+            <MessageAvatar src={avatarSrc} name={senderName} />
           )}
 
-          {/* Message bubble */}
-          <div
-            className={cn(
-              "relative rounded-2xl px-4 py-2 transition-all shadow-sm",
-              isOwn
-                ? "bg-primary text-primary-foreground rounded-br-md"
-                : "bg-muted text-foreground rounded-bl-md",
-              onClick && "cursor-pointer hover:opacity-90",
-              pinned && "ring-2 ring-yellow-400 ring-offset-1"
-            )}
-            onClick={handleClick}
+          {/* Message content with Taki UI MessageContent */}
+          <MessageContent
+            variant={isOwn ? "contained" : "flat"}
+            className={cn("relative", onClick && "hover:opacity-90")}
           >
             <div className="flex items-start gap-2">
               <div className="flex-1 text-sm leading-relaxed break-words overflow-wrap-anywhere">
@@ -344,8 +350,8 @@ export const MessageBubble = memo(
                 )}
               </div>
             )}
-          </div>
-        </div>
+          </MessageContent>
+        </TakiMessage>
       </div>
     );
   },

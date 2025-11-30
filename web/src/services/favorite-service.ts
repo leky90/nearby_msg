@@ -85,7 +85,7 @@ export async function removeFavorite(groupId: string): Promise<void> {
 }
 
 /**
- * Query function for fetching favorites (for TanStack Query)
+ * Query function for fetching favorites (used by Redux Saga)
  * Reads from RxDB first (since API endpoint doesn't exist yet)
  * @returns Array of favorite groups
  */
