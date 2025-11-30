@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react';
 import type { FavoriteGroup } from '../domain/favorite_group';
 import { getDatabase } from '../services/db';
 import { getOrCreateDeviceId } from '../services/device-storage';
+import { log } from '../lib/logging/logger';
 
 export interface UseFavoritesResult {
   /** Favorite groups array */
@@ -68,7 +69,7 @@ export function useFavorites(): UseFavoritesResult {
           subscription.unsubscribe();
         };
       } catch (err) {
-        console.error('Failed to setup reactive favorites query:', err);
+        log.error('Failed to setup reactive favorites query', err);
         setError(err instanceof Error ? err : new Error(String(err)));
         setIsLoading(false);
       }

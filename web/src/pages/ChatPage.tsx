@@ -4,7 +4,15 @@
  */
 
 import { useMessages } from "../hooks/useMessages";
-import { createTextMessage } from "../services/message-service";
+import { useDispatch, useSelector } from "react-redux";
+import { sendTextMessageAction } from "@/store/sagas/messageSaga";
+import {
+  connectWebSocketAction,
+  subscribeToGroupsAction,
+} from "@/store/sagas/websocketSaga";
+import { selectIsWebSocketConnected } from "@/store/slices/websocketSlice";
+import { selectJWTToken } from "@/store/slices/deviceSlice";
+import type { RootState } from "@/store";
 import { ChatHeader } from "../components/chat/ChatHeader";
 import { MessageList } from "../components/chat/MessageList";
 import { MessageInput } from "../components/chat/MessageInput";
@@ -14,15 +22,20 @@ import { getGroup } from "../services/group-service";
 import { addFavorite, removeFavorite } from "../services/favorite-service";
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { useNavigationStore } from "../stores/navigation-store";
+import {
+  setActiveTab,
+  setCurrentChatGroupId,
+} from "@/store/slices/navigationSlice";
 import { useQueryClient } from "@tanstack/react-query";
 import { RefreshCw, ArrowLeft } from "lucide-react";
 import type { Group } from "../domain/group";
+import { log } from "../lib/logging/logger";
 import { Skeleton } from "../components/ui/skeleton";
 import { Button } from "../components/ui/button";
 import { t } from "../lib/i18n";
 import { NetworkBanner } from "../components/common/NetworkBanner";
 import { TopNavigation } from "../components/navigation/TopNavigation";
+import { WebSocketStatusIndicator } from "../components/common/WebSocketStatusIndicator";
 import { showToast } from "../utils/toast";
 import { cn } from "@/lib/utils";
 
@@ -37,44 +50,33 @@ export interface ChatPageProps {
  */
 export function ChatPage({ groupId }: ChatPageProps) {
   const navigate = useNavigate();
+  const dispatch = useDispatch();
   const queryClient = useQueryClient();
-  const { setActiveTab, setCurrentChatGroupId } = useNavigationStore();
   const [group, setGroup] = useState<Group | null>(null);
   const [isLoadingGroup, setIsLoadingGroup] = useState(true);
   const [pinnedDrawerOpen, setPinnedDrawerOpen] = useState(false);
 
-  // Load group information
+  // WebSocket state
+  const isWebSocketConnected = useSelector((state: RootState) =>
+    selectIsWebSocketConnected(state)
+  );
+  const jwtToken = useSelector((state: RootState) => selectJWTToken(state));
+
+  // Load group information from RxDB (synced via replication)
   const loadGroup = async () => {
     if (!groupId) return;
     setIsLoadingGroup(true);
     try {
-      // Always fetch fresh from server to ensure we have latest data
-      // This ensures we get updates even if local DB is stale
-      const fetchedGroup = await getGroup(groupId);
-      if (fetchedGroup) {
-        setGroup(fetchedGroup);
+      // Read from RxDB (data is synced via replication mechanism)
+      // Replication sync runs every 5 seconds, so data is fresh
+      const group = await getGroup(groupId);
+      if (group) {
+        setGroup(group);
       } else {
-        // Fallback to local DB if server fetch fails
-        const db = await getDatabase();
-        const groupDoc = await db.groups.findOne(groupId).exec();
-        if (groupDoc) {
-          setGroup(groupDoc.toJSON() as Group);
-        } else {
-          console.warn(`Group ${groupId} not found`);
-        }
+        log.warn("Group not found", { groupId });
       }
     } catch (err) {
-      console.error("Failed to load group:", err);
-      // Fallback to local DB on error
-      try {
-        const db = await getDatabase();
-        const groupDoc = await db.groups.findOne(groupId).exec();
-        if (groupDoc) {
-          setGroup(groupDoc.toJSON() as Group);
-        }
-      } catch (dbErr) {
-        console.error("Failed to load from local DB:", dbErr);
-      }
+      log.error("Failed to load group", err, { groupId });
     } finally {
       setIsLoadingGroup(false);
     }
@@ -84,15 +86,57 @@ export function ChatPage({ groupId }: ChatPageProps) {
     void loadGroup();
   }, [groupId]);
 
-  // Poll for group updates to sync between users (every 10 seconds)
+  // Connect WebSocket and subscribe to group on mount
+  useEffect(() => {
+    if (!jwtToken || !groupId) {
+      return;
+    }
+
+    // Connect WebSocket if not already connected
+    if (!isWebSocketConnected) {
+      dispatch(connectWebSocketAction());
+    }
+
+    // Subscribe to group when WebSocket is connected
+    // This will be handled by a separate effect that watches isWebSocketConnected
+  }, [groupId, jwtToken, isWebSocketConnected, dispatch]);
+
+  // Subscribe to group when WebSocket becomes connected
+  useEffect(() => {
+    if (isWebSocketConnected && groupId) {
+      dispatch(subscribeToGroupsAction([groupId]));
+    }
+  }, [isWebSocketConnected, groupId, dispatch]);
+
+  // Watch RxDB for group updates (reactive query via replication sync)
+  // No need to poll API - replication sync handles updates automatically
   useEffect(() => {
     if (!groupId) return;
 
-    const pollInterval = setInterval(() => {
-      void loadGroup();
-    }, 10000); // Poll every 10 seconds
+    let subscription: (() => void) | null = null;
 
-    return () => clearInterval(pollInterval);
+    const watchGroup = async () => {
+      const db = await getDatabase();
+      const groupDoc = await db.groups.findOne(groupId).exec();
+
+      if (groupDoc) {
+        // Subscribe to changes (reactive query)
+        const sub = groupDoc.$.subscribe((doc) => {
+          if (doc) {
+            setGroup(doc.toJSON() as Group);
+          }
+        });
+        subscription = () => sub.unsubscribe();
+      }
+    };
+
+    void watchGroup();
+
+    return () => {
+      if (subscription) {
+        subscription();
+      }
+    };
   }, [groupId]);
 
   // Use reactive messages hook
@@ -112,15 +156,15 @@ export function ChatPage({ groupId }: ChatPageProps) {
   };
 
   const handleBack = () => {
-    setCurrentChatGroupId(null);
-    setActiveTab("explore");
+    dispatch(setCurrentChatGroupId(null));
+    dispatch(setActiveTab("explore"));
     navigate("/");
   };
 
   const handleSendMessage = async (content: string) => {
     if (!groupId) return;
-    await createTextMessage(groupId, content);
-    // Message will appear automatically via reactive query
+    dispatch(sendTextMessageAction(groupId, content));
+    // Message will appear automatically via reactive query and Redux
   };
 
   if (!groupId) {
@@ -223,6 +267,10 @@ export function ChatPage({ groupId }: ChatPageProps) {
 
       {/* Chat Header - Below TopNavigation */}
       <div className="sticky top-14 z-10 border-b bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/80">
+        {/* WebSocket Status Indicator */}
+        <div className="px-4 py-2 border-b">
+          <WebSocketStatusIndicator showLabel={true} />
+        </div>
         <ChatHeader
           group={group}
           onFavoriteToggle={async (isFavorited) => {
@@ -251,7 +299,7 @@ export function ChatPage({ groupId }: ChatPageProps) {
                 exact: false,
               });
             } catch (err) {
-              console.error("Failed to toggle favorite:", err);
+              log.error("Failed to toggle favorite", err, { groupId });
               const errorMessage =
                 err instanceof Error
                   ? err.message
@@ -299,7 +347,7 @@ export function ChatPage({ groupId }: ChatPageProps) {
         onMessageClick={(message) => {
           // Scroll to message in chat
           // This could be enhanced to actually scroll to the message
-          console.log("Navigate to message:", message.id);
+          log.debug("Navigate to message", { messageId: message.id });
         }}
         groupLocation={
           group

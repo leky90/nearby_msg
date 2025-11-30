@@ -6,6 +6,7 @@
 
 import { closeDatabase } from './db';
 import { stopReplication } from './replication';
+import { log } from '../lib/logging/logger';
 
 /**
  * Clears all user data from RxDB and localStorage
@@ -24,7 +25,7 @@ export async function clearAllUserData(): Promise<void> {
   try {
     await closeDatabase(); // This removes the database
   } catch (error) {
-    console.error('Failed to clear RxDB:', error);
+    log.error('Failed to clear RxDB', error);
     // Continue with localStorage clearing even if RxDB fails
   }
 

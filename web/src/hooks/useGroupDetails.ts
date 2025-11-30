@@ -8,6 +8,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { Group } from '@/domain/group';
 import { getLatestMessage, getUnreadCount } from '@/services/message-service';
 import { isFavorited } from '@/services/favorite-service';
+import { getGroupStatusSummary } from '@/services/status-service';
 
 export interface GroupDetail {
   group: Group;
@@ -60,10 +61,11 @@ export function useGroupDetails({
     queryFn: async () => {
       const details = await Promise.all(
         groups.map(async (group, index) => {
-          const [latestMessage, unreadCount, favorited] = await Promise.all([
+          const [latestMessage, unreadCount, favorited, statusSummary] = await Promise.all([
             getLatestMessage(group.id).catch(() => null),
             getUnreadCount(group.id).catch(() => 0),
             isFavorited(group.id).catch(() => false),
+            getGroupStatusSummary(group.id).catch(() => ({ total_count: 0 })),
           ]);
 
           return {
@@ -75,7 +77,7 @@ export function useGroupDetails({
               : null,
             unreadCount,
             isFavorited: favorited,
-            activeMemberCount: 0, // TODO: Get from API or calculate
+            activeMemberCount: statusSummary.total_count || 0,
           };
         })
       );

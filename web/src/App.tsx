@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { RouterProvider } from "react-router-dom";
+import { useDispatch, useSelector } from "react-redux";
 import { ErrorBoundary } from "./components/common/ErrorBoundary";
 import { Toaster } from "./components/ui/sonner";
 import { OnboardingScreen } from "./components/onboarding/OnboardingScreen";
@@ -11,12 +12,21 @@ import { showToast } from "./utils/toast";
 import { startReplication } from "./services/replication";
 import { getDeviceId } from "./services/device-storage";
 import { PWAUpdatePrompt } from "./components/common/PWAUpdatePrompt";
+import { connectWebSocketAction } from "./store/sagas/websocketSaga";
+import { selectIsWebSocketConnected } from "./store/slices/websocketSlice";
+import type { RootState } from "./store";
 
 const router = createAppRouter();
 
 function App() {
   const [onboardingComplete, setOnboardingComplete] = useState(false);
   const [shouldFetchDevice, setShouldFetchDevice] = useState(false);
+  const dispatch = useDispatch();
+
+  // WebSocket state
+  const isWebSocketConnected = useSelector((state: RootState) =>
+    selectIsWebSocketConnected(state)
+  );
 
   // Sync device location from localStorage to app store
   useDeviceLocation();
@@ -45,19 +55,42 @@ function App() {
   useEffect(() => {
     if (device?.nickname) {
       // Device exists and has nickname - onboarding complete
-      setOnboardingComplete(true);
+      // Use setTimeout to avoid synchronous setState in effect
+      setTimeout(() => {
+        setOnboardingComplete(true);
+      }, 0);
       // Start replication after device is confirmed
       const token = localStorage.getItem("jwt_token");
       if (token) {
         startReplication();
+        // Connect WebSocket when device is authenticated
+        if (!isWebSocketConnected) {
+          dispatch(connectWebSocketAction());
+        }
       }
     } else if (!deviceLoading && shouldFetchDevice && !device) {
       // Device not found or has no nickname - needs onboarding
       // Only reset if we actually tried to fetch but got nothing
-      setOnboardingComplete(false);
-      setShouldFetchDevice(false);
+      setTimeout(() => {
+        setOnboardingComplete(false);
+        setShouldFetchDevice(false);
+      }, 0);
     }
-  }, [device, deviceLoading, shouldFetchDevice]);
+  }, [
+    device,
+    deviceLoading,
+    shouldFetchDevice,
+    isWebSocketConnected,
+    dispatch,
+  ]);
+
+  // Auto-connect WebSocket on app start if we have a token
+  useEffect(() => {
+    const token = localStorage.getItem("jwt_token");
+    if (token && !isWebSocketConnected) {
+      dispatch(connectWebSocketAction());
+    }
+  }, [dispatch, isWebSocketConnected]);
 
   // Monitor storage quota
   useEffect(() => {

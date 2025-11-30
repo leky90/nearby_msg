@@ -8,7 +8,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { GoogleMapsInstructionsModal } from "./GoogleMapsInstructionsModal";
-import { useAppStore } from "@/stores/app-store";
+import { useSelector } from "react-redux";
+import { selectDeviceLocation } from "@/store/slices/appSlice";
+import type { RootState } from "@/store";
 import { copyCoordinates } from "@/utils/copy-coordinates";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -28,11 +30,13 @@ export interface LocationInputProps {
 }
 
 function LocationAddressDisplay({
-  location: _location,
+  location: _location, // eslint-disable-line @typescript-eslint/no-unused-vars
 }: {
   location: { latitude: number; longitude: number };
 }) {
-  const { deviceLocation } = useAppStore();
+  const deviceLocation = useSelector((state: RootState) =>
+    selectDeviceLocation(state)
+  );
 
   if (deviceLocation?.address) {
     return (

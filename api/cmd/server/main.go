@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"os"
@@ -19,17 +18,22 @@ import (
 	"nearby-msg/api/internal/handler"
 	"nearby-msg/api/internal/infrastructure/auth"
 	"nearby-msg/api/internal/infrastructure/database"
+	"nearby-msg/api/internal/infrastructure/logging"
 	"nearby-msg/api/internal/service"
 
 	"github.com/joho/godotenv"
 )
 
 func main() {
+	// Initialize structured logger
+	logging.Init()
+	logger := logging.GetLogger()
+
 	// Load .env file if it exists (for development)
 	// In production, environment variables should be set by the deployment platform
 	if err := godotenv.Load(); err != nil {
 		// .env file is optional - environment variables can be set directly
-		log.Println("Note: .env file not found, using environment variables")
+		logger.Info("Note: .env file not found, using environment variables")
 	}
 
 	ctx := context.Background()
@@ -37,13 +41,15 @@ func main() {
 	// Initialize database connection pool
 	dbPool, err := database.NewPool(ctx)
 	if err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
+		logger.Error("Failed to connect to database", "error", err)
+		os.Exit(1)
 	}
 	defer dbPool.Close()
 
 	// Run migrations
 	if err := runMigrations(ctx, dbPool); err != nil {
-		log.Fatalf("Failed to run migrations: %v", err)
+		logger.Error("Failed to run migrations", "error", err)
+		os.Exit(1)
 	}
 
 	// Initialize repositories
@@ -59,6 +65,9 @@ func main() {
 	deviceService := service.NewDeviceService(deviceRepo)
 	groupService := service.NewGroupService(groupRepo)
 	messageService := service.NewMessageService(messageRepo)
+	favoriteService := service.NewFavoriteService(favoriteRepo)
+	statusService := service.NewStatusService(statusRepo)
+	pinService := service.NewPinService(pinRepo, messageRepo)
 	replicationService := service.NewReplicationService(
 		messageRepo,
 		groupRepo,
@@ -67,10 +76,11 @@ func main() {
 		statusRepo,
 		replicationRepo,
 		messageService,
+		groupService,
+		favoriteService,
+		statusService,
+		deviceService,
 	)
-	favoriteService := service.NewFavoriteService(favoriteRepo)
-	statusService := service.NewStatusService(statusRepo)
-	pinService := service.NewPinService(pinRepo, messageRepo)
 
 	// Initialize handlers
 	deviceHandler := handler.NewDeviceHandler(deviceService)
@@ -87,13 +97,14 @@ func main() {
 
 	// Check if port is available
 	if !isPortAvailable(port) {
-		log.Printf("Warning: Port %s is already in use", port)
+		logger.Warn("Port is already in use", "port", port)
 		// Try to find PID using the port
 		if pid := findProcessUsingPort(port); pid != "" {
-			log.Printf("Port %s is being used by process %s", port, pid)
-			log.Printf("To free the port, run: kill -9 %s", pid)
+			logger.Warn("Port is being used by process", "port", port, "pid", pid)
+			logger.Info("To free the port, run", "command", fmt.Sprintf("kill -9 %s", pid))
 		}
-		log.Fatalf("Cannot start server: port %s is already in use. Please free the port or set PORT environment variable to a different port.", port)
+		logger.Error("Cannot start server: port is already in use", "port", port)
+		os.Exit(1)
 	}
 
 	// Create HTTP server with error handling middleware
@@ -134,7 +145,7 @@ func main() {
 		} else if r.Method == http.MethodGet {
 			statusHandler.GetStatus(w, r)
 		} else {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			handler.WriteError(w, fmt.Errorf("method not allowed"), http.StatusMethodNotAllowed)
 		}
 	}))))
 	// Group status summary route (must be before /v1/groups/ to avoid conflict)
@@ -147,9 +158,10 @@ func main() {
 
 	// Start server in a goroutine
 	go func() {
-		log.Printf("Server starting on port %s", port)
+		logger.Info("Server starting", "port", port)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Server failed to start: %v", err)
+			logger.Error("Server failed to start", "error", err)
+			os.Exit(1)
 		}
 	}()
 
@@ -158,20 +170,22 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	log.Println("Shutting down server...")
+	logger.Info("Shutting down server...")
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	if err := server.Shutdown(shutdownCtx); err != nil {
-		log.Fatalf("Server forced to shutdown: %v", err)
+		logger.Error("Server forced to shutdown", "error", err)
+		os.Exit(1)
 	}
 
-	log.Println("Server exited")
+	logger.Info("Server exited")
 }
 
 // runMigrations executes database migrations in order
 func runMigrations(ctx context.Context, pool *database.Pool) error {
+	logger := logging.GetLogger()
 	// Get migrations directory path relative to this file
 	_, currentFile, _, _ := runtime.Caller(0)
 	baseDir := filepath.Dir(currentFile)
@@ -204,19 +218,19 @@ func runMigrations(ctx context.Context, pool *database.Pool) error {
 			return fmt.Errorf("failed to read migration %s: %w", filename, err)
 		}
 
-		log.Printf("Running migration: %s", filename)
+		logger.Info("Running migration", "filename", filename)
 		if _, err := pool.Exec(ctx, string(migrationSQL)); err != nil {
 			// Ignore errors for existing objects (tables, indexes, triggers, functions)
 			errStr := err.Error()
 			if strings.Contains(errStr, "already exists") ||
 				strings.Contains(errStr, "duplicate") ||
 				strings.Contains(errStr, "SQLSTATE 42710") {
-				log.Printf("Migration %s: objects already exist, skipping", filename)
+				logger.Info("Migration: objects already exist, skipping", "filename", filename)
 				continue
 			}
 			return fmt.Errorf("failed to execute migration %s: %w", filename, err)
 		}
-		log.Printf("Migration %s completed", filename)
+		logger.Info("Migration completed", "filename", filename)
 	}
 
 	return nil

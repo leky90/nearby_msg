@@ -5,16 +5,25 @@
 
 import { post } from './api';
 import { getDatabase, getPendingMessageDocs } from './db';
+import {
+  getPendingMutations,
+  updateMutationStatus,
+  removeMutation,
+  discardMutationsForEntity,
+} from './mutation-queue';
+import { isOnline } from './network-status';
+import { log } from '../lib/logging/logger';
 import type { Message } from '../domain/message';
 import type { Group } from '../domain/group';
 import type { FavoriteGroup } from '../domain/favorite_group';
 import type { PinnedMessage } from '../domain/pinned_message';
 import type { UserStatus } from '../domain/user_status';
-import type { Collection } from './collections';
+import type { Collection as ReplicationCollection } from './collections';
+import type { Collection as MutationCollection } from '../domain/mutation';
 import type { NearbyMsgDatabase } from './db';
 
 const DEFAULT_SYNC_INTERVAL = 5000;
-const MAX_RETRIES = 5;
+const MAX_RETRIES = 1; // Only retry once for network errors, not for API errors
 const INITIAL_RETRY_DELAY = 1000; // 1 second
 const MAX_RETRY_DELAY = 30000; // 30 seconds
 
@@ -42,8 +51,15 @@ type Document = {
   document: Message | Group | FavoriteGroup | PinnedMessage | UserStatus;
 };
 
+type DeletionSignal = {
+  collection: string;
+  id: string;
+  deleted_at: string;
+};
+
 type PullDocumentsResponse = {
   documents: Document[];
+  deletions?: DeletionSignal[]; // NEW: Deletion signals
   checkpoint: string; // Legacy field for backward compatibility
   checkpoints?: Record<string, string>; // Per-collection checkpoints: collection -> ISO timestamp
   has_more: boolean;
@@ -139,15 +155,61 @@ export function migrateLegacyCheckpoint(): void {
 }
 
 /**
+ * Checks if an error is a network error (should retry) vs API error (should not retry)
+ * Network errors: TypeError (fetch failed), connection errors, timeouts
+ * API errors: 4xx, 5xx status codes - should not retry to avoid spam
+ */
+function isNetworkError(error: unknown): boolean {
+  // If error has a status property, it's an API error (from api.ts)
+  if (error && typeof error === 'object' && 'status' in error) {
+    return false; // API error - don't retry
+  }
+
+  // TypeError usually means network error (fetch failed, connection refused, etc)
+  if (error instanceof TypeError) {
+    return true; // Network error - can retry
+  }
+
+  // Check error message for network-related keywords
+  if (error instanceof Error) {
+    const message = error.message.toLowerCase();
+    const networkKeywords = [
+      'network',
+      'fetch',
+      'connection',
+      'timeout',
+      'failed to fetch',
+      'networkerror',
+      'network request failed',
+    ];
+    return networkKeywords.some((keyword) => message.includes(keyword));
+  }
+
+  // Unknown error type - assume it's not a network error to avoid spam
+  return false;
+}
+
+/**
  * Retries a function with exponential backoff
+ * Only retries network errors, not API errors (4xx, 5xx) to avoid spam
  */
 async function retryWithBackoff<T>(
   fn: () => Promise<T>,
   maxRetries: number = MAX_RETRIES
 ): Promise<T> {
+  // Check network status before attempting
+  if (!isOnline()) {
+    throw new Error('Network offline - cannot sync');
+  }
+
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    // Check network status before each attempt
+    if (!isOnline()) {
+      throw new Error('Network offline - cannot sync');
+    }
+
     try {
       const result = await fn();
       // Reset retry state on success
@@ -156,6 +218,20 @@ async function retryWithBackoff<T>(
     } catch (error) {
       lastError = error as Error;
 
+      // If network goes offline during retry, stop immediately
+      if (!isOnline()) {
+        throw new Error('Network offline - cannot sync');
+      }
+
+      // Check if this is a network error (should retry) or API error (should not retry)
+      const shouldRetry = isNetworkError(error);
+
+      if (!shouldRetry) {
+        // API error (4xx, 5xx) - don't retry to avoid spam
+        throw error;
+      }
+
+      // Network error - can retry
       if (attempt < maxRetries) {
         // Exponential backoff with jitter
         const delay = Math.min(
@@ -171,12 +247,110 @@ async function retryWithBackoff<T>(
 }
 
 async function pushPendingMessages(): Promise<void> {
+  // Check network status before attempting push
+  if (!isOnline()) {
+    return; // Silently skip when offline
+  }
+
   const pendingDocs = await getPendingMessageDocs();
   if (!pendingDocs.length) {
     return;
   }
 
-  const payload: PushPayload[] = pendingDocs.map((doc) => {
+  // Filter out messages that were already synced via WebSocket
+  // WebSocket messages have sync_status='synced' and should not be pushed again
+  const messagesToPush = pendingDocs.filter((doc) => {
+    const data = doc.toJSON() as Message;
+    // Only push messages with sync_status='pending' or 'failed'
+    // Skip messages that were synced via WebSocket (sync_status='synced')
+    return data.sync_status === 'pending' || data.sync_status === 'failed';
+  });
+
+  if (!messagesToPush.length) {
+    return;
+  }
+
+  const db = await getDatabase();
+  
+  // Filter messages: only push messages whose group_id exists on server
+  // This prevents foreign key constraint errors when group hasn't been synced yet
+  // A group is considered "synced" if:
+  // 1. It exists in local DB AND
+  // 2. It doesn't have a pending create_group mutation (not optimistic)
+  const validMessages: typeof messagesToPush = [];
+  for (const doc of messagesToPush) {
+    const data = doc.toJSON() as Message;
+    
+    // Check if group exists in local DB
+    const groupDoc = await db.groups.findOne(data.group_id).exec();
+    if (!groupDoc) {
+      // Group doesn't exist in local DB - skip this message
+      log.warn('Skipping message: group not found in local DB', {
+        messageId: data.id,
+        groupId: data.group_id,
+      });
+      continue;
+    }
+
+    // Check if group has pending create_group mutation (optimistic group)
+    // If it does, the group hasn't been created on server yet
+    const createGroupMutation = await db.mutations
+      .findOne({
+        selector: {
+          target_collection: 'groups',
+          type: 'create_group',
+          entity_id: data.group_id,
+          sync_status: { $in: ['pending', 'syncing'] },
+        },
+      })
+      .exec();
+
+    if (createGroupMutation) {
+      // Group is optimistic (has pending create mutation) - skip this message
+      // It will be pushed after group is created on server
+      log.warn('Skipping message: group is optimistic (pending creation)', {
+        messageId: data.id,
+        groupId: data.group_id,
+      });
+      continue;
+    }
+
+    // Additional check: if group has same creator_device_id as current device,
+    // check if there's another group with different ID (server-created group)
+    // This handles the case where server created group with different ID
+    const deviceId = localStorage.getItem('device_id') || '';
+    if (groupDoc.toJSON().creator_device_id === deviceId) {
+      const serverGroup = await db.groups
+        .findOne({
+          selector: {
+            creator_device_id: deviceId,
+            id: { $ne: data.group_id },
+          },
+        })
+        .exec();
+      
+      if (serverGroup) {
+        // There's a server-created group with different ID
+        // This means the current group_id is optimistic and should be updated
+        // Skip this message - it will be updated when group is synced
+        log.warn('Skipping message: group is optimistic (server group exists with different ID)', {
+          messageId: data.id,
+          groupId: data.group_id,
+          serverGroupId: serverGroup.id,
+        });
+        continue;
+      }
+    }
+
+    // Group exists and is synced (no pending create mutation) - safe to push
+    validMessages.push(doc);
+  }
+
+  if (!validMessages.length) {
+    return;
+  }
+
+  const payload: PushPayload[] = validMessages.map((doc) => {
     const data = doc.toJSON() as Message;
     return {
       id: data.id,
@@ -194,8 +368,9 @@ async function pushPendingMessages(): Promise<void> {
     await retryWithBackoff(() => post('/replicate/push', { messages: payload }));
 
     const syncedAt = new Date().toISOString();
+    // Only mark successfully pushed messages as synced
     await Promise.all(
-      pendingDocs.map((doc) =>
+      validMessages.map((doc) =>
         doc.patch({
           sync_status: 'synced',
           synced_at: syncedAt,
@@ -206,11 +381,112 @@ async function pushPendingMessages(): Promise<void> {
     // Mark messages as failed after all retries exhausted
     const failedAt = new Date().toISOString();
     await Promise.all(
-      pendingDocs.map((doc) =>
+      validMessages.map((doc) =>
         doc.patch({
           sync_status: 'failed',
           synced_at: failedAt,
         })
+      )
+    );
+    throw error;
+  }
+}
+
+/**
+ * Pushes pending mutations (groups, favorites, status, devices) to server
+ */
+async function pushPendingMutations(): Promise<void> {
+  // Check network status before attempting push
+  if (!isOnline()) {
+    return; // Silently skip when offline
+  }
+
+  const pendingMutations = await getPendingMutations();
+  if (!pendingMutations.length) {
+    return;
+  }
+
+  // Group mutations by type
+  const groups: Array<{
+    id: string;
+    mutation_type: 'create' | 'update';
+    name?: string;
+    type?: string;
+    latitude?: number;
+    longitude?: number;
+    region_code?: string;
+    creator_device_id?: string;
+  }> = [];
+  const favorites: Array<{
+    mutation_type: 'add' | 'remove';
+    group_id: string;
+  }> = [];
+  const status: Array<{
+    status_type: string;
+    description?: string;
+  }> = [];
+  const devices: Array<{
+    nickname: string;
+  }> = [];
+
+  // Mark all mutations as syncing
+  await Promise.all(
+    pendingMutations.map((mut) => updateMutationStatus(mut.id, 'syncing'))
+  );
+
+  // Organize mutations by type
+  for (const mut of pendingMutations) {
+    switch (mut.type) {
+      case 'create_group':
+      case 'update_group':
+        groups.push({
+          id: mut.entity_id || mut.id, // Note: mut.collection -> mut.target_collection (collection is reserved in RxDB)
+          mutation_type: mut.type === 'create_group' ? 'create' : 'update',
+          ...(mut.payload as Record<string, unknown>),
+        } as typeof groups[0]);
+        break;
+      case 'add_favorite':
+      case 'remove_favorite':
+        favorites.push({
+          mutation_type: mut.type === 'add_favorite' ? 'add' : 'remove',
+          group_id: (mut.payload as { group_id: string }).group_id,
+        });
+        break;
+      case 'update_status':
+        status.push(mut.payload as typeof status[0]);
+        break;
+      case 'update_nickname':
+        devices.push(mut.payload as typeof devices[0]);
+        break;
+    }
+  }
+
+  // Build push payload
+  const payload: Record<string, unknown> = {};
+  if (groups.length > 0) payload.groups = groups;
+  if (favorites.length > 0) payload.favorites = favorites;
+  if (status.length > 0) payload.status = status;
+  if (devices.length > 0) payload.devices = devices;
+
+  if (Object.keys(payload).length === 0) {
+    return;
+  }
+
+  try {
+    await retryWithBackoff(() => post('/replicate/push', payload));
+
+    // Mark all mutations as synced and remove from queue
+    await Promise.all(
+      pendingMutations.map(async (mut) => {
+        await updateMutationStatus(mut.id, 'synced');
+        await removeMutation(mut.id);
+      })
+    );
+  } catch (error) {
+    // Mark mutations as failed after all retries exhausted
+    await Promise.all(
+      pendingMutations.map((mut) =>
+        updateMutationStatus(mut.id, 'failed', String(error))
       )
     );
     throw error;
@@ -224,6 +500,11 @@ async function pullDocuments(
   collections: string[],
   groupIds?: string[]
 ): Promise<void> {
+  // Check network status before attempting pull
+  if (!isOnline()) {
+    return; // Silently skip when offline
+  }
+
   // Migration is now handled at app startup in replication.ts
   // No need to call migrateLegacyCheckpoint() here anymore
 
@@ -253,7 +534,7 @@ async function pullDocuments(
     db: NearbyMsgDatabase
   ) => Promise<void>;
 
-  const documentProcessors: Record<Collection, DocumentProcessor> = {
+  const documentProcessors: Record<ReplicationCollection, DocumentProcessor> = {
     messages: async (doc, db) => {
       await db.messages.upsert({
         ...(doc as Message),
@@ -262,7 +543,38 @@ async function pullDocuments(
       });
     },
     groups: async (doc, db) => {
-      await db.groups.upsert(doc as Group);
+      const group = doc as Group;
+      
+      // Check if there's an optimistic group with same creator_device_id but different ID
+      // This happens when server creates group with different ID than client's optimistic ID
+      const optimisticGroup = await db.groups
+        .findOne({
+          selector: {
+            creator_device_id: group.creator_device_id,
+            id: { $ne: group.id },
+          },
+        })
+        .exec();
+      
+      if (optimisticGroup) {
+        const optimistic = optimisticGroup.toJSON() as Group;
+        // This is the server-created group replacing optimistic group
+        // Update all messages with old (optimistic) group_id to new (server) group_id
+        const messagesToUpdate = await db.messages
+          .find({ selector: { group_id: optimistic.id } })
+          .exec();
+        
+        await Promise.all(
+          messagesToUpdate.map((msgDoc) =>
+            msgDoc.patch({ group_id: group.id })
+          )
+        );
+        
+        // Remove old optimistic group
+        await optimisticGroup.remove();
+      }
+      
+      await db.groups.upsert(group);
     },
     favorite_groups: async (doc, db) => {
       await db.favorite_groups.upsert(doc as FavoriteGroup);
@@ -279,27 +591,81 @@ async function pullDocuments(
   await Promise.all(
     response.documents.map(async (doc) => {
       try {
-        const processor = documentProcessors[doc.collection as Collection];
+        const processor = documentProcessors[doc.collection as ReplicationCollection];
         if (processor) {
           await processor(doc.document, db);
         } else {
-          console.warn(
-            `Unknown collection type: ${doc.collection}. Valid collections: messages, groups, favorite_groups, pinned_messages, user_status`
-          );
+          log.warn('Unknown collection type', {
+            collection: doc.collection,
+            validCollections: ['messages', 'groups', 'favorite_groups', 'pinned_messages', 'user_status'],
+          });
         }
       } catch (error) {
         // Log error but continue processing other documents (partial failure handling)
-        console.error(
-          `Failed to process document from collection ${doc.collection}:`,
-          error
-        );
+        log.error('Failed to process document from collection', error, {
+          collection: doc.collection,
+        });
       }
     })
   );
 
+  // Process deletion signals
+  if (response.deletions && response.deletions.length > 0) {
+    await Promise.all(
+      response.deletions.map(async (deletion) => {
+        try {
+          const collection = deletion.collection as ReplicationCollection;
+          const entityId = deletion.id;
+
+          // Remove entity from local database
+          switch (collection) {
+            case 'groups': {
+              const groupDoc = await db.groups.findOne(entityId).exec();
+              if (groupDoc) await groupDoc.remove();
+              // Discard any pending mutations for this entity (conflict resolution: server wins)
+              await discardMutationsForEntity('groups', entityId);
+              break;
+            }
+            case 'favorite_groups': {
+              const favDoc = await db.favorite_groups.findOne(entityId).exec();
+              if (favDoc) await favDoc.remove();
+              // Discard any pending mutations for this entity (conflict resolution: server wins)
+              await discardMutationsForEntity('favorite_groups', entityId);
+              break;
+            }
+            case 'messages': {
+              const msgDoc = await db.messages.findOne(entityId).exec();
+              if (msgDoc) await msgDoc.remove();
+              // Messages don't have mutations, so no need to discard
+              break;
+            }
+            case 'user_status': {
+              const statusDoc = await db.user_status.findOne(entityId).exec();
+              if (statusDoc) await statusDoc.remove();
+              // Discard any pending mutations for this entity (conflict resolution: server wins)
+              // Type assertion needed because MutationCollection is a subset of ReplicationCollection
+              await discardMutationsForEntity('user_status' as MutationCollection, entityId);
+              break;
+            }
+            case 'pinned_messages':
+              // Pinned messages don't have deletion sync yet (not in scope)
+              break;
+            default:
+              log.warn('Unknown collection for deletion', { collection });
+          }
+        } catch (error) {
+          log.error('Failed to process deletion', error, {
+            collection: deletion.collection,
+            id: deletion.id,
+          });
+        }
+      })
+    );
+  }
+
   // Handle pagination: if has_more is true, client can make another request with updated checkpoint
   if (response.has_more) {
-    console.log('More documents available - client can request next page with updated checkpoint');
+    log.debug('More documents available - client can request next page with updated checkpoint');
   }
 
   // Update checkpoints per collection
@@ -322,9 +688,23 @@ async function syncCycle(): Promise<void> {
   if (isSyncRunning) {
     return;
   }
+
+  // Check network status before starting sync cycle
+  if (!isOnline()) {
+    // Silently skip sync when offline - replication.ts handles pausing/resuming
+    return;
+  }
+
   isSyncRunning = true;
   try {
+    // Push groups first, then messages
+    // This ensures groups exist on server before messages reference them
+    await pushPendingMutations();
+    
+    // After groups are synced, push messages
+    // Messages with group_id that were just created will now be valid
     await pushPendingMessages();
+    
     // Pull all collections
     await pullDocuments([
       'messages',
@@ -334,7 +714,11 @@ async function syncCycle(): Promise<void> {
       'user_status',
     ]);
   } catch (error) {
-    console.warn('Replication sync failed', error);
+    // Only log errors if we're still online (network errors when offline are expected)
+    if (isOnline()) {
+      log.warn('Replication sync failed', error);
+    }
+    // Silently skip errors when offline - they're expected
   } finally {
     isSyncRunning = false;
   }

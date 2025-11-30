@@ -7,6 +7,7 @@ import { Component, type ReactNode } from "react";
 import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
 import { Button } from "../ui/button";
 import { AlertCircle } from "lucide-react";
+import { log } from "../../lib/logging/logger";
 
 export interface ErrorBoundaryProps {
   /** Child components */
@@ -46,7 +47,7 @@ export class ErrorBoundary extends Component<
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo): void {
-    console.error("ErrorBoundary caught an error:", error, errorInfo);
+    log.error("ErrorBoundary caught an error", error, { errorInfo });
     this.props.onError?.(error, errorInfo);
   }
 
@@ -69,9 +70,7 @@ export class ErrorBoundary extends Component<
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>Đã xảy ra lỗi</AlertTitle>
             <AlertDescription className="mt-2">
-              <p className="mb-4">
-                Đã xảy ra lỗi. Vui lòng thử làm mới trang.
-              </p>
+              <p className="mb-4">Đã xảy ra lỗi. Vui lòng thử làm mới trang.</p>
               {import.meta.env.DEV && this.state.error && (
                 <details className="mt-2">
                   <summary className="cursor-pointer text-sm font-medium">

@@ -7,6 +7,7 @@ import { Wifi, WifiOff, Loader2 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { getDatabase } from "@/services/db";
 import { t } from "@/lib/i18n";
+import { log } from "@/lib/logging/logger";
 
 export interface SyncStatusIndicatorProps {
   groupId: string;
@@ -50,7 +51,7 @@ export function SyncStatusIndicator({ groupId }: SyncStatusIndicatorProps) {
           setSyncStatus("online");
         }
       } catch (err) {
-        console.error("Failed to check sync status:", err);
+        log.error("Failed to check sync status", err, { groupId });
         setSyncStatus("offline");
       }
     };

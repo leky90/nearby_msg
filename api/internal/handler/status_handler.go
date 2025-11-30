@@ -1,10 +1,9 @@
 package handler
 
 import (
-	"encoding/json"
+	"fmt"
 	"net/http"
 
-	"nearby-msg/api/internal/infrastructure/auth"
 	"nearby-msg/api/internal/service"
 )
 
@@ -20,63 +19,53 @@ func NewStatusHandler(statusService *service.StatusService) *StatusHandler {
 
 // UpdateStatus handles PUT /status
 func (h *StatusHandler) UpdateStatus(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPut {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	if !RequireMethod(w, r, http.MethodPut) {
 		return
 	}
 
-	// Get device ID from context
-	ctx := r.Context()
-	deviceID, ok := auth.GetDeviceIDFromContext(ctx)
+	deviceID, ok := RequireAuth(w, r)
 	if !ok {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
+	ctx := r.Context()
 	var req service.UpdateStatusRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	if err := DecodeJSON(w, r, &req); err != nil {
 		return
 	}
 
 	status, err := h.statusService.UpdateStatus(ctx, deviceID, req)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		WriteError(w, err, http.StatusBadRequest)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(status)
+	WriteJSON(w, http.StatusOK, status)
 }
 
 // GetStatus handles GET /status
 func (h *StatusHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	if !RequireMethod(w, r, http.MethodGet) {
 		return
 	}
 
-	// Get device ID from context
-	ctx := r.Context()
-	deviceID, ok := auth.GetDeviceIDFromContext(ctx)
+	deviceID, ok := RequireAuth(w, r)
 	if !ok {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
+	ctx := r.Context()
 	status, err := h.statusService.GetStatus(ctx, deviceID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		WriteError(w, err, http.StatusInternalServerError)
 		return
 	}
 
 	// If no status found, return 404
 	if status == nil {
-		http.Error(w, "Status not found", http.StatusNotFound)
+		WriteError(w, fmt.Errorf("status not found"), http.StatusNotFound)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(status)
+	WriteJSON(w, http.StatusOK, status)
 }

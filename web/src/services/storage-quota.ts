@@ -3,6 +3,8 @@
  * Monitors and manages offline storage quota for IndexedDB
  */
 
+import { log } from '../lib/logging/logger';
+
 type QuotaStatus = "ok" | "warning" | "critical" | "exceeded";
 
 interface StorageQuotaInfo {
@@ -51,7 +53,7 @@ export async function getStorageQuota(): Promise<StorageQuotaInfo | null> {
       status,
     };
   } catch (error) {
-    console.error("Failed to get storage quota:", error);
+    log.error("Failed to get storage quota", error);
     return null;
   }
 }
@@ -145,7 +147,7 @@ export async function clearOldData(targetPercentage: number = 0.5): Promise<numb
 
     return deleted;
   } catch (error) {
-    console.error("Failed to clear old data:", error);
+    log.error("Failed to clear old data", error);
     return 0;
   }
 }

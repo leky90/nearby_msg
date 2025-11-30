@@ -10,6 +10,7 @@ import { useEffect, useState, useMemo } from 'react';
 import type { Group } from '../domain/group';
 import { calculateDistance } from '../domain/group';
 import { getDatabase } from '../services/db';
+import { log } from '../lib/logging/logger';
 
 export interface UseNearbyGroupsOptions {
   /** Latitude for filtering */
@@ -134,7 +135,7 @@ export function useNearbyGroups({
         }
       } catch (err) {
         if (isMounted) {
-          console.error('Failed to setup reactive nearby groups query:', err);
+          log.error('Failed to setup reactive nearby groups query', err);
           setError(err instanceof Error ? err : new Error(String(err)));
           setIsLoading(false);
         }

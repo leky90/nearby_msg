@@ -4,7 +4,8 @@
 
 import { RefreshCw, ArrowLeft, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useNavigationStore } from "@/stores/navigation-store";
+import { useDispatch } from "react-redux";
+import { setActiveTab } from "@/store/slices/navigationSlice";
 
 interface FeedErrorStateProps {
   title: string;
@@ -21,10 +22,10 @@ export function FeedErrorState({
   onBack,
   isGPSError = false,
 }: FeedErrorStateProps) {
-  const { setActiveTab } = useNavigationStore();
+  const dispatch = useDispatch();
 
   const handleGoToSettings = () => {
-    setActiveTab("status");
+    dispatch(setActiveTab("status"));
   };
 
   return (

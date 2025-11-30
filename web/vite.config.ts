@@ -51,8 +51,9 @@ export default defineConfig({
     react(),
     tailwindcss(),
     VitePWA({
-      registerType: 'prompt',
+      registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'robots.txt', 'offline.html'],
+      injectRegister: 'auto',
       manifest: {
         name: 'Nearby Community Chat',
         short_name: 'Nearby Chat',
@@ -71,6 +72,7 @@ export default defineConfig({
         ]
       },
       workbox: {
+        // Don't use custom sw.js from public/ - let VitePWA generate it
         // Precaching: Cache app shell and static assets
         globPatterns: [
           '**/*.{js,css,html,ico,png,svg,woff,woff2,ttf,eot}',
@@ -79,6 +81,14 @@ export default defineConfig({
         // Precache strategy: CacheFirst for static assets
         navigateFallback: '/index.html',
         navigateFallbackDenylist: [/^\/api/, /^\/_/, /^\/v1/],
+        // Clean up old caches on activation
+        cleanupOutdatedCaches: true,
+        // Skip waiting to activate immediately
+        skipWaiting: true,
+        clientsClaim: true,
+        // Import custom service worker code if needed (for background sync)
+        // Note: In dev mode, we can import custom sw.js for background sync features
+        importScripts: process.env.NODE_ENV === 'development' ? ['/sw.js'] : [],
         // Runtime caching strategies
         runtimeCaching: [
           {
@@ -144,7 +154,11 @@ export default defineConfig({
       // Enable in dev mode for testing
       devOptions: {
         enabled: true,
-        type: 'module'
+        type: 'module',
+        // Use custom sw.js in dev mode for background sync features
+        navigateFallback: '/index.html',
+        // Suppress warnings about missing icons in dev mode
+        suppressWarnings: true
       }
     })
   ]

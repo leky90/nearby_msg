@@ -6,7 +6,11 @@
 import { Star, ArrowLeft } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { useNavigationStore } from "@/stores/navigation-store";
+import { useDispatch } from "react-redux";
+import {
+  setActiveTab,
+  setCurrentChatGroupId,
+} from "@/store/slices/navigationSlice";
 import type { Group } from "../../domain/group";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
@@ -18,6 +22,7 @@ import { StatusSummary } from "../groups/StatusSummary";
 import { GroupNameEditor } from "./GroupNameEditor";
 import { SyncStatusIndicator } from "./SyncStatusIndicator";
 import { t } from "@/lib/i18n";
+import { log } from "../../lib/logging/logger";
 
 export interface ChatHeaderProps {
   /** Group information */
@@ -59,7 +64,7 @@ export function ChatHeader({
   className,
 }: ChatHeaderProps) {
   const navigate = useNavigate();
-  const { setActiveTab, setCurrentChatGroupId } = useNavigationStore();
+  const dispatch = useDispatch();
   const [favorited, setFavorited] = useState(false);
   const [isCreator, setIsCreator] = useState(false);
   const [statusSummary, setStatusSummary] = useState<{
@@ -71,8 +76,8 @@ export function ChatHeader({
   const statusSummaryLoadingRef = useRef(false);
 
   const handleBack = () => {
-    setCurrentChatGroupId(null);
-    setActiveTab("explore");
+    dispatch(setCurrentChatGroupId(null));
+    dispatch(setActiveTab("explore"));
     navigate("/");
   };
 
@@ -85,7 +90,7 @@ export function ChatHeader({
         const isOwner = group.creator_device_id === deviceId;
         setIsCreator(isOwner);
       } catch (err) {
-        console.error("Failed to check creator status:", err);
+        log.error("Failed to check creator status", err, { groupId: group.id });
         setIsCreator(false);
       }
     };
@@ -99,7 +104,9 @@ export function ChatHeader({
         const favoritedStatus = await isFavorited(group.id);
         setFavorited(favoritedStatus);
       } catch (err) {
-        console.error("Failed to check favorite status:", err);
+        log.error("Failed to check favorite status", err, {
+          groupId: group.id,
+        });
       }
     };
     void checkFavorite();
@@ -119,7 +126,7 @@ export function ChatHeader({
     }
   };
 
-  // Load status summary
+  // Load status summary from RxDB (synced via replication)
   useEffect(() => {
     let isMounted = true;
 
@@ -131,13 +138,15 @@ export function ChatHeader({
 
       statusSummaryLoadingRef.current = true;
       try {
+        // Calculate from RxDB (data synced via replication mechanism)
+        // No need to poll API - replication sync handles updates automatically
         const summary = await getGroupStatusSummary(group.id);
         // Only update state if component is still mounted
         if (isMounted) {
           setStatusSummary(summary);
         }
       } catch (err) {
-        console.error("Failed to load status summary:", err);
+        log.error("Failed to load status summary", err, { groupId: group.id });
       } finally {
         statusSummaryLoadingRef.current = false;
       }
@@ -145,10 +154,13 @@ export function ChatHeader({
 
     void loadStatusSummary();
 
-    // Refresh every 10 seconds
+    // Watch RxDB for status updates via reactive query
+    // Replication sync updates user_status collection every 5 seconds
+    // We refresh status summary when user_status changes
+    // Use longer interval since status changes are infrequent
     const interval = setInterval(() => {
       void loadStatusSummary();
-    }, 10000);
+    }, 60000); // Refresh every 60 seconds (status changes are rare)
 
     return () => {
       isMounted = false;

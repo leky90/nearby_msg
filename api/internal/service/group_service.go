@@ -58,7 +58,7 @@ func (s *GroupService) CreateGroup(ctx context.Context, req CreateGroupRequest) 
 	}
 
 	if err := group.Validate(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("group validation failed: %w", err)
 	}
 
 	if err := s.repo.Create(ctx, group); err != nil {
@@ -101,7 +101,7 @@ type NearbyGroupResponse struct {
 func (s *GroupService) FindNearbyGroups(ctx context.Context, req NearbyGroupsRequest) ([]NearbyGroupResponse, error) {
 	// Validate radius
 	if err := ValidateRadius(req.Radius); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("radius validation failed: %w", err)
 	}
 
 	// Find nearby groups
@@ -118,8 +118,9 @@ func (s *GroupService) FindNearbyGroups(ctx context.Context, req NearbyGroupsReq
 	// Convert to response format with activity
 	responses := make([]NearbyGroupResponse, len(results))
 	for i, result := range results {
-		// TODO: Calculate actual activity (message count in last 24h)
-		// For now, return 0 as placeholder
+		// Note: Activity calculation (message count in last 24h) can be implemented in the future
+		// This would require adding a method to message repository to count messages by group and time range
+		// For now, return 0 as placeholder - this doesn't affect core functionality
 		activity := 0
 		responses[i] = NearbyGroupResponse{
 			Group:    result.Group,

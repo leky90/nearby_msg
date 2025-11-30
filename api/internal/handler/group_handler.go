@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -31,7 +32,7 @@ func NewGroupHandler(groupService *service.GroupService, favoriteService *servic
 // GetNearbyGroups handles GET /groups/nearby
 func (h *GroupHandler) GetNearbyGroups(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		WriteError(w, fmt.Errorf("method not allowed"), http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -41,41 +42,41 @@ func (h *GroupHandler) GetNearbyGroups(w http.ResponseWriter, r *http.Request) {
 	radiusStr := r.URL.Query().Get("radius")
 
 	if latStr == "" || lonStr == "" || radiusStr == "" {
-		http.Error(w, "latitude, longitude, and radius are required", http.StatusBadRequest)
+		WriteError(w, fmt.Errorf("latitude, longitude, and radius are required"), http.StatusBadRequest)
 		return
 	}
 
 	latitude, err := strconv.ParseFloat(latStr, 64)
 	if err != nil {
-		http.Error(w, "invalid latitude", http.StatusBadRequest)
+		WriteError(w, fmt.Errorf("invalid latitude: %w", err), http.StatusBadRequest)
 		return
 	}
 
 	longitude, err := strconv.ParseFloat(lonStr, 64)
 	if err != nil {
-		http.Error(w, "invalid longitude", http.StatusBadRequest)
+		WriteError(w, fmt.Errorf("invalid longitude: %w", err), http.StatusBadRequest)
 		return
 	}
 
 	radius, err := strconv.ParseFloat(radiusStr, 64)
 	if err != nil {
-		http.Error(w, "invalid radius", http.StatusBadRequest)
+		WriteError(w, fmt.Errorf("invalid radius: %w", err), http.StatusBadRequest)
 		return
 	}
 
 	// Validate radius (500, 1000, or 2000 meters)
 	if err := service.ValidateRadius(radius); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		WriteError(w, err, http.StatusBadRequest)
 		return
 	}
 
 	// Validate latitude/longitude ranges
 	if latitude < -90 || latitude > 90 {
-		http.Error(w, "latitude must be between -90 and 90", http.StatusBadRequest)
+		WriteError(w, fmt.Errorf("latitude must be between -90 and 90"), http.StatusBadRequest)
 		return
 	}
 	if longitude < -180 || longitude > 180 {
-		http.Error(w, "longitude must be between -180 and 180", http.StatusBadRequest)
+		WriteError(w, fmt.Errorf("longitude must be between -180 and 180"), http.StatusBadRequest)
 		return
 	}
 
@@ -88,18 +89,17 @@ func (h *GroupHandler) GetNearbyGroups(w http.ResponseWriter, r *http.Request) {
 
 	groups, err := h.groupService.FindNearbyGroups(ctx, req)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		WriteError(w, err, http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(groups)
+	WriteJSON(w, http.StatusOK, groups)
 }
 
 // CreateGroup handles POST /groups
 func (h *GroupHandler) CreateGroup(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		WriteError(w, fmt.Errorf("method not allowed"), http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -107,13 +107,13 @@ func (h *GroupHandler) CreateGroup(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	deviceID, ok := auth.GetDeviceIDFromContext(ctx)
 	if !ok {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		WriteError(w, fmt.Errorf("unauthorized"), http.StatusUnauthorized)
 		return
 	}
 
 	var req service.CreateGroupRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		WriteError(w, fmt.Errorf("invalid request body: %w", err), http.StatusBadRequest)
 		return
 	}
 
@@ -123,16 +123,14 @@ func (h *GroupHandler) CreateGroup(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// Check if error is "device has already created a group" - return 409 Conflict
 		if err.Error() == "device has already created a group" {
-			http.Error(w, err.Error(), http.StatusConflict)
+			WriteError(w, err, http.StatusConflict)
 			return
 		}
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		WriteError(w, err, http.StatusBadRequest)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(group)
+	WriteJSON(w, http.StatusCreated, group)
 }
 
 // HandleGroupRoutes routes group-related requests based on path and method
@@ -165,7 +163,7 @@ func (h *GroupHandler) HandleGroupRoutes(w http.ResponseWriter, r *http.Request)
 	}
 
 	if groupID == "" {
-		http.Error(w, "Group ID required", http.StatusBadRequest)
+		WriteError(w, fmt.Errorf("group ID required"), http.StatusBadRequest)
 		return
 	}
 
@@ -177,7 +175,7 @@ func (h *GroupHandler) HandleGroupRoutes(w http.ResponseWriter, r *http.Request)
 		case http.MethodDelete:
 			h.RemoveFavorite(w, r)
 		default:
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			WriteError(w, fmt.Errorf("method not allowed"), http.StatusMethodNotAllowed)
 		}
 		return
 	}
@@ -187,7 +185,7 @@ func (h *GroupHandler) HandleGroupRoutes(w http.ResponseWriter, r *http.Request)
 		case http.MethodGet:
 			h.GetPinnedMessages(w, r)
 		default:
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			WriteError(w, fmt.Errorf("method not allowed"), http.StatusMethodNotAllowed)
 		}
 		return
 	}
@@ -199,7 +197,7 @@ func (h *GroupHandler) HandleGroupRoutes(w http.ResponseWriter, r *http.Request)
 	case http.MethodPut, http.MethodPatch:
 		h.UpdateGroup(w, r)
 	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		WriteError(w, fmt.Errorf("method not allowed"), http.StatusMethodNotAllowed)
 	}
 }
 
@@ -217,25 +215,24 @@ func (h *GroupHandler) GetGroup(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if groupID == "" {
-		http.Error(w, "Group ID required", http.StatusBadRequest)
+		WriteError(w, fmt.Errorf("group ID required"), http.StatusBadRequest)
 		return
 	}
 
 	ctx := r.Context()
 	group, err := h.groupService.GetGroup(ctx, groupID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		WriteError(w, err, http.StatusNotFound)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(group)
+	WriteJSON(w, http.StatusOK, group)
 }
 
 // SuggestGroup handles GET /groups/suggest
 func (h *GroupHandler) SuggestGroup(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		WriteError(w, fmt.Errorf("method not allowed"), http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -244,29 +241,29 @@ func (h *GroupHandler) SuggestGroup(w http.ResponseWriter, r *http.Request) {
 	lonStr := r.URL.Query().Get("longitude")
 
 	if latStr == "" || lonStr == "" {
-		http.Error(w, "latitude and longitude are required", http.StatusBadRequest)
+		WriteError(w, fmt.Errorf("latitude and longitude are required"), http.StatusBadRequest)
 		return
 	}
 
 	latitude, err := strconv.ParseFloat(latStr, 64)
 	if err != nil {
-		http.Error(w, "invalid latitude", http.StatusBadRequest)
+		WriteError(w, fmt.Errorf("invalid latitude: %w", err), http.StatusBadRequest)
 		return
 	}
 
 	longitude, err := strconv.ParseFloat(lonStr, 64)
 	if err != nil {
-		http.Error(w, "invalid longitude", http.StatusBadRequest)
+		WriteError(w, fmt.Errorf("invalid longitude: %w", err), http.StatusBadRequest)
 		return
 	}
 
 	// Validate latitude/longitude ranges
 	if latitude < -90 || latitude > 90 {
-		http.Error(w, "latitude must be between -90 and 90", http.StatusBadRequest)
+		WriteError(w, fmt.Errorf("latitude must be between -90 and 90"), http.StatusBadRequest)
 		return
 	}
 	if longitude < -180 || longitude > 180 {
-		http.Error(w, "longitude must be between -180 and 180", http.StatusBadRequest)
+		WriteError(w, fmt.Errorf("longitude must be between -180 and 180"), http.StatusBadRequest)
 		return
 	}
 
@@ -278,12 +275,11 @@ func (h *GroupHandler) SuggestGroup(w http.ResponseWriter, r *http.Request) {
 
 	suggestion, err := h.groupService.SuggestGroupNameAndType(ctx, req)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		WriteError(w, err, http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(suggestion)
+	WriteJSON(w, http.StatusOK, suggestion)
 }
 
 // AddFavorite handles POST /groups/{id}/favorite
@@ -292,14 +288,14 @@ func (h *GroupHandler) AddFavorite(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	deviceID, ok := auth.GetDeviceIDFromContext(ctx)
 	if !ok {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		WriteError(w, fmt.Errorf("unauthorized"), http.StatusUnauthorized)
 		return
 	}
 
 	// Extract group ID from path
 	groupID := extractGroupIDFromPath(r.URL.Path)
 	if groupID == "" {
-		http.Error(w, "Group ID required", http.StatusBadRequest)
+		WriteError(w, fmt.Errorf("group ID required"), http.StatusBadRequest)
 		return
 	}
 
@@ -307,18 +303,14 @@ func (h *GroupHandler) AddFavorite(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if strings.Contains(err.Error(), "already favorited") {
 			// Already favorited, return existing
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(favorite)
+			WriteJSON(w, http.StatusOK, favorite)
 			return
 		}
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		WriteError(w, err, http.StatusBadRequest)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(favorite)
+	WriteJSON(w, http.StatusCreated, favorite)
 }
 
 // RemoveFavorite handles DELETE /groups/{id}/favorite
@@ -327,23 +319,23 @@ func (h *GroupHandler) RemoveFavorite(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	deviceID, ok := auth.GetDeviceIDFromContext(ctx)
 	if !ok {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		WriteError(w, fmt.Errorf("unauthorized"), http.StatusUnauthorized)
 		return
 	}
 
 	// Extract group ID from path
 	groupID := extractGroupIDFromPath(r.URL.Path)
 	if groupID == "" {
-		http.Error(w, "Group ID required", http.StatusBadRequest)
+		WriteError(w, fmt.Errorf("group ID required"), http.StatusBadRequest)
 		return
 	}
 
 	if err := h.favoriteService.RemoveFavorite(ctx, deviceID, groupID); err != nil {
 		if strings.Contains(err.Error(), "not found") {
-			http.Error(w, err.Error(), http.StatusNotFound)
+			WriteError(w, err, http.StatusNotFound)
 			return
 		}
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		WriteError(w, err, http.StatusBadRequest)
 		return
 	}
 
@@ -353,51 +345,49 @@ func (h *GroupHandler) RemoveFavorite(w http.ResponseWriter, r *http.Request) {
 // GetGroupStatusSummary handles GET /groups/{id}/status-summary
 func (h *GroupHandler) GetGroupStatusSummary(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		WriteError(w, fmt.Errorf("method not allowed"), http.StatusMethodNotAllowed)
 		return
 	}
 
 	// Extract group ID from path
 	groupID := extractGroupIDFromPath(r.URL.Path)
 	if groupID == "" {
-		http.Error(w, "Group ID required", http.StatusBadRequest)
+		WriteError(w, fmt.Errorf("group ID required"), http.StatusBadRequest)
 		return
 	}
 
 	ctx := r.Context()
 	summary, err := h.statusService.GetGroupStatusSummary(ctx, groupID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		WriteError(w, err, http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(summary)
+	WriteJSON(w, http.StatusOK, summary)
 }
 
 // GetPinnedMessages handles GET /groups/{id}/pinned
 func (h *GroupHandler) GetPinnedMessages(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		WriteError(w, fmt.Errorf("method not allowed"), http.StatusMethodNotAllowed)
 		return
 	}
 
 	// Extract group ID from path
 	groupID := extractGroupIDFromPath(r.URL.Path)
 	if groupID == "" {
-		http.Error(w, "Group ID required", http.StatusBadRequest)
+		WriteError(w, fmt.Errorf("group ID required"), http.StatusBadRequest)
 		return
 	}
 
 	ctx := r.Context()
 	pins, err := h.pinService.GetPinnedMessages(ctx, groupID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		WriteError(w, err, http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(pins)
+	WriteJSON(w, http.StatusOK, pins)
 }
 
 // UpdateGroup handles PUT/PATCH /groups/{id}
@@ -406,39 +396,38 @@ func (h *GroupHandler) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	deviceID, ok := auth.GetDeviceIDFromContext(ctx)
 	if !ok {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		WriteError(w, fmt.Errorf("unauthorized"), http.StatusUnauthorized)
 		return
 	}
 
 	// Extract group ID from path
 	groupID := extractGroupIDFromPath(r.URL.Path)
 	if groupID == "" {
-		http.Error(w, "Group ID required", http.StatusBadRequest)
+		WriteError(w, fmt.Errorf("group ID required"), http.StatusBadRequest)
 		return
 	}
 
 	var req service.UpdateGroupRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		WriteError(w, fmt.Errorf("invalid request body: %w", err), http.StatusBadRequest)
 		return
 	}
 
 	group, err := h.groupService.UpdateGroup(ctx, groupID, deviceID, req)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
-			http.Error(w, err.Error(), http.StatusNotFound)
+			WriteError(w, err, http.StatusNotFound)
 			return
 		}
 		if strings.Contains(err.Error(), "only the creator") {
-			http.Error(w, err.Error(), http.StatusForbidden)
+			WriteError(w, err, http.StatusForbidden)
 			return
 		}
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		WriteError(w, err, http.StatusBadRequest)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(group)
+	WriteJSON(w, http.StatusOK, group)
 }
 
 // extractGroupIDFromPath extracts group ID from URL path

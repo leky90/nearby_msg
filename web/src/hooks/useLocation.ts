@@ -5,7 +5,9 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { useAppStore } from '@/stores/app-store';
+import { useSelector } from 'react-redux';
+import { selectDeviceLocation } from '@/store/slices/appSlice';
+import type { RootState } from '@/store';
 import { getCurrentLocation } from '@/services/location-service';
 
 export interface Location {
@@ -31,7 +33,7 @@ export interface UseLocationResult {
  * Provides user location from app store (preferred) or GPS (fallback)
  */
 export function useLocation(): UseLocationResult {
-  const { deviceLocation } = useAppStore();
+  const deviceLocation = useSelector((state: RootState) => selectDeviceLocation(state));
 
   // Get GPS location if not in store
   const {

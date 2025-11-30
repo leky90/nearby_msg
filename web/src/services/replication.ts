@@ -5,12 +5,13 @@
  */
 
 import {
-  startMessageSync,
-  stopMessageSync,
-  triggerImmediateSync,
+    startMessageSync,
+    stopMessageSync,
+    triggerImmediateSync,
 } from './replication-sync';
 import { migrateLegacyCheckpoint } from './replication-sync';
 import { getNetworkStatus, subscribeToNetworkStatus } from './network-status';
+import { log } from '../lib/logging/logger';
 
 const DEFAULT_VISIBILITY_SYNC_DELAY = 1000;
 
@@ -34,7 +35,7 @@ export function startReplication(options: ReplicationOptions = {}): void {
   // Check if device is registered (has token)
   const token = localStorage.getItem('jwt_token');
   if (!token) {
-    console.log('Replication not started: Device not registered yet');
+    log.debug('Replication not started: Device not registered yet');
     return;
   }
 
@@ -54,7 +55,7 @@ export function startReplication(options: ReplicationOptions = {}): void {
     if (status === 'offline') {
       // Pause sync when offline
       stopMessageSync();
-      console.log('Replication paused: Network offline');
+      log.debug('Replication paused: Network offline');
     } else if (status === 'online') {
       // Resume sync when online
       startMessageSync(options.intervalMs);
@@ -62,7 +63,7 @@ export function startReplication(options: ReplicationOptions = {}): void {
       setTimeout(() => {
         void triggerImmediateSync();
       }, 100); // Small delay to ensure network is stable
-      console.log('Replication resumed: Network online');
+      log.debug('Replication resumed: Network online');
     }
   });
 

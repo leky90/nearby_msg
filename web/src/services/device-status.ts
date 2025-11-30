@@ -3,6 +3,8 @@
  * Handles battery and GPS status monitoring
  */
 
+import { log } from '../lib/logging/logger';
+
 export interface BatteryStatus {
   level: number; // 0-1
   charging: boolean;
@@ -11,26 +13,40 @@ export interface BatteryStatus {
 
 export type GPSStatus = 'granted' | 'denied' | 'prompt' | 'unavailable';
 
+// Battery API interface (not fully typed in TypeScript)
+interface BatteryManager {
+  level: number;
+  charging: boolean;
+  addEventListener: (event: string, handler: () => void) => void;
+  removeEventListener: (event: string, handler: () => void) => void;
+}
+
+interface NavigatorWithBattery extends Navigator {
+  getBattery?: () => Promise<BatteryManager>;
+  battery?: BatteryManager;
+}
+
 /**
  * Gets battery status
  * @returns Battery status or null if unavailable
  */
 export async function getBatteryStatus(): Promise<BatteryStatus | null> {
   // Check if Battery API is available
+  const nav = navigator as NavigatorWithBattery;
   if (
     typeof navigator !== 'undefined' &&
     'getBattery' in navigator &&
-    typeof (navigator as any).getBattery === 'function'
+    typeof nav.getBattery === 'function'
   ) {
     try {
-      const battery = await (navigator as any).getBattery();
+      const battery = await nav.getBattery();
       return {
         level: battery.level,
         charging: battery.charging,
         available: true,
       };
     } catch (error) {
-      console.warn('Failed to get battery status:', error);
+      log.warn('Failed to get battery status', error);
       return null;
     }
   }
@@ -39,17 +55,17 @@ export async function getBatteryStatus(): Promise<BatteryStatus | null> {
   if (
     typeof navigator !== 'undefined' &&
     'battery' in navigator &&
-    (navigator as any).battery
+    nav.battery
   ) {
     try {
-      const battery = (navigator as any).battery;
+      const battery = nav.battery;
       return {
         level: battery.level,
         charging: battery.charging,
         available: true,
       };
     } catch (error) {
-      console.warn('Failed to get battery status:', error);
+      log.warn('Failed to get battery status', error);
       return null;
     }
   }
@@ -90,7 +106,7 @@ export async function getGPSStatus(): Promise<GPSStatus> {
 export function subscribeToBatteryStatus(
   callback: (status: BatteryStatus | null) => void
 ): () => void {
-  let battery: any = null;
+  let battery: BatteryManager | null = null;
   let isSubscribed = true;
 
   const updateBattery = async () => {
@@ -108,19 +124,19 @@ export function subscribeToBatteryStatus(
   updateBattery();
 
   // Try to subscribe to battery events
+  const nav = navigator as NavigatorWithBattery;
   if (
     typeof navigator !== 'undefined' &&
     'getBattery' in navigator &&
-    typeof (navigator as any).getBattery === 'function'
+    typeof nav.getBattery === 'function'
   ) {
-    (navigator as any)
-      .getBattery()
-      .then((b: any) => {
+    nav.getBattery()
+      .then((b: BatteryManager) => {
         if (!isSubscribed) return;
         battery = b;
 
         const handleChange = () => {
-          if (isSubscribed) {
+          if (isSubscribed && battery) {
             callback({
               level: battery.level,
               charging: battery.charging,

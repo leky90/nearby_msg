@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useNavigationStore } from "@/stores/navigation-store";
 import { useLocation } from "@/hooks/useLocation";
 import { useDebouncedLocation } from "@/hooks/useDebouncedLocation";
 import { useNearbyGroups } from "@/hooks/useNearbyGroups";
@@ -27,10 +26,14 @@ export function ExploreFeed({
 }: ExploreFeedProps) {
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const navigate = useNavigate();
-  const { setActiveTab } = useNavigationStore();
 
   // Location management (extracted to hook)
-  const { location, isLoading: isLoadingLocation, error: locationError, refetch: refetchLocation } = useLocation();
+  const {
+    location,
+    isLoading: isLoadingLocation,
+    error: locationError,
+    refetch: refetchLocation,
+  } = useLocation();
   const { debouncedLocation } = useDebouncedLocation({ location });
 
   // Nearby groups (reactive from RxDB)
@@ -73,7 +76,6 @@ export function ExploreFeed({
 
   const handleBack = () => {
     navigate("/");
-    setActiveTab("explore");
   };
 
   // Error state: GPS unavailable

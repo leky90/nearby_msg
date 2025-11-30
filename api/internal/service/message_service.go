@@ -66,7 +66,7 @@ func (s *MessageService) CreateMessage(ctx context.Context, req CreateMessageReq
 	// Check SOS cooldown if this is an SOS message
 	if req.MessageType == domain.MessageTypeSOS {
 		if err := s.CheckSOSCooldown(ctx, req.DeviceID); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("SOS cooldown check failed: %w", err)
 		}
 	}
 
@@ -91,7 +91,7 @@ func (s *MessageService) CreateMessage(ctx context.Context, req CreateMessageReq
 
 	// Validate message
 	if err := message.Validate(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("message validation failed: %w", err)
 	}
 
 	// Record SOS if applicable

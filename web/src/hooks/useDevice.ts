@@ -1,16 +1,27 @@
 /**
  * Device registration hook
- * Handles device registration and token management using TanStack Query
+ * Handles device registration and token management using Redux
  */
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSelector, useDispatch } from 'react-redux';
+import { useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import type { Device, DeviceCreateRequest, DeviceUpdateRequest } from '../domain/device';
 import { getOrCreateDeviceId } from '../services/device-storage';
 import {
-  fetchDevice,
-  registerDeviceMutation,
-  updateDeviceNickname,
+    fetchDevice
 } from '../services/device-service';
+import {
+    selectDevice,
+    selectDeviceLoading,
+    selectDeviceError,
+} from '../store/slices/deviceSlice';
+import {
+    fetchDeviceAction,
+    registerDeviceAction,
+    updateDeviceAction,
+} from '../store/sagas/deviceSaga';
+import type { RootState } from '../store';
 
 export interface UseDeviceReturn {
   device: Device | null;
@@ -23,12 +34,17 @@ export interface UseDeviceReturn {
 
 /**
  * Hook for device registration and management
- * Uses TanStack Query for automatic request deduplication, caching, and retry
+ * Uses Redux for state management and TanStack Query for caching
  * @param enabled - Whether to enable the device query (default: true)
  * @returns Device state and registration functions
  */
 export function useDevice(enabled: boolean = true): UseDeviceReturn {
-  const queryClient = useQueryClient();
+  const dispatch = useDispatch();
+  
+  // Redux selectors
+  const device = useSelector((state: RootState) => selectDevice(state));
+  const isLoading = useSelector((state: RootState) => selectDeviceLoading(state));
+  const error = useSelector((state: RootState) => selectDeviceError(state));
   
   // Only get/create device ID if enabled
   // This prevents creating device ID before user completes onboarding
@@ -36,12 +52,11 @@ export function useDevice(enabled: boolean = true): UseDeviceReturn {
 
   // Query for device data (reads from RxDB first, then API)
   // Only enabled if explicitly enabled AND we have a device ID
+  // This is kept for backward compatibility and caching
   const {
-    data: device,
-    isLoading,
-    error: queryError,
+    data: queryDevice,
     refetch: refreshDevice,
-  } = useQuery({
+  } = useQuery<Device | null>({
     queryKey: ['device', deviceId],
     queryFn: fetchDevice,
     staleTime: 5 * 60 * 1000, // 5 minutes
@@ -50,122 +65,39 @@ export function useDevice(enabled: boolean = true): UseDeviceReturn {
     enabled: enabled && !!deviceId,
   });
 
-  // Mutation for device registration with optimistic updates
-  const registerMutation = useMutation({
-    mutationFn: registerDeviceMutation,
-    // Optimistic update: immediately update UI before server responds
-    onMutate: async (variables) => {
-      // Cancel outgoing queries
-      await queryClient.cancelQueries({ queryKey: ['device', deviceId] });
+  // Sync query result to Redux
+  useEffect(() => {
+    if (queryDevice) {
+      dispatch({ type: 'device/setDevice', payload: queryDevice });
+    }
+  }, [queryDevice, dispatch]);
+  
+  // Use Redux device if available, otherwise fall back to query device
+  const currentDevice: Device | null = device || (queryDevice ?? null);
 
-      // Snapshot previous value
-      const previousDevice = queryClient.getQueryData<Device | null>(['device', deviceId]);
-
-      // Optimistically update cache (if we have device ID and nickname)
-      // Only if nickname is provided (required for registration)
-      if (deviceId && variables?.nickname) {
-        const optimisticDevice: Device = {
-          id: deviceId,
-          nickname: variables.nickname,
-          public_key: '',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        };
-        queryClient.setQueryData(['device', deviceId], optimisticDevice);
-      }
-
-      return { previousDevice };
-    },
-    onSuccess: (data) => {
-      // Update with server response and invalidate related queries
-      queryClient.setQueryData(['device', data.device.id], data.device);
-      queryClient.invalidateQueries({ queryKey: ['device'] });
-      // Refetch device to ensure UI is updated
-      queryClient.refetchQueries({ queryKey: ['device', data.device.id] });
-    },
-    onError: (err, _variables, context) => {
-      // Rollback on error
-      if (context?.previousDevice !== undefined) {
-        queryClient.setQueryData(['device', deviceId], context.previousDevice);
-      }
-      console.error('Failed to register device:', err);
-    },
-  });
-
-  // Mutation for device update with optimistic updates
-  const updateMutation = useMutation({
-    mutationFn: async (request: DeviceUpdateRequest) => {
-      if (!device) {
-        throw new Error('Thiết bị chưa được đăng ký');
-      }
-      return updateDeviceNickname(request.nickname);
-    },
-    // Optimistic update
-    onMutate: async (request) => {
-      if (!device) return { previousDevice: null };
-
-      // Cancel outgoing queries
-      await queryClient.cancelQueries({ queryKey: ['device', device.id] });
-
-      // Snapshot previous value
-      const previousDevice = queryClient.getQueryData<Device | null>(['device', device.id]);
-
-      // Optimistically update cache
-      const optimisticDevice: Device = {
-        ...device,
-        nickname: request.nickname,
-        updated_at: new Date().toISOString(),
-      };
-      queryClient.setQueryData(['device', device.id], optimisticDevice);
-
-      return { previousDevice };
-    },
-    onSuccess: (updatedDevice) => {
-      // Update with server response
-      queryClient.setQueryData(['device', updatedDevice.id], updatedDevice);
-      queryClient.invalidateQueries({ queryKey: ['device'] });
-    },
-    onError: (err, _request, context) => {
-      // Rollback on error
-      if (context?.previousDevice !== undefined && device) {
-        queryClient.setQueryData(['device', device.id], context.previousDevice);
-      }
-      console.error('Failed to update device:', err);
-    },
-  });
-
-  // Register device (triggers mutation)
+  // Register device (dispatches Redux action)
   const registerDevice = async (request?: DeviceCreateRequest) => {
-    await registerMutation.mutateAsync(request);
+    dispatch(registerDeviceAction(request));
   };
 
-  // Update device (triggers mutation)
+  // Update device (dispatches Redux action)
   const updateDevice = async (request: DeviceUpdateRequest) => {
-    await updateMutation.mutateAsync(request);
+    if (!currentDevice) {
+      throw new Error('Thiết bị chưa được đăng ký');
+    }
+    dispatch(updateDeviceAction(request));
   };
 
-  // Refresh device (refetches query)
+  // Refresh device (dispatches Redux action and refetches query)
   const handleRefreshDevice = async () => {
+    dispatch(fetchDeviceAction());
     await refreshDevice();
   };
 
-  // Determine loading state
-  const loading = isLoading || registerMutation.isPending || updateMutation.isPending;
-
-  // Determine error state
-  const error =
-    queryError instanceof Error
-      ? queryError.message
-      : registerMutation.error instanceof Error
-        ? registerMutation.error.message
-        : updateMutation.error instanceof Error
-          ? updateMutation.error.message
-          : null;
-
   return {
-    device: device || null,
-    loading,
-    error,
+    device: currentDevice,
+    loading: isLoading,
+    error: error || null,
     registerDevice,
     updateDevice,
     refreshDevice: handleRefreshDevice,

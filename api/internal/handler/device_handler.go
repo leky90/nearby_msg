@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"nearby-msg/api/internal/infrastructure/auth"
@@ -21,71 +22,69 @@ func NewDeviceHandler(deviceService *service.DeviceService) *DeviceHandler {
 // RegisterDevice handles POST /device/register
 func (h *DeviceHandler) RegisterDevice(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		WriteError(w, fmt.Errorf("method not allowed"), http.StatusMethodNotAllowed)
 		return
 	}
 
 	var req service.RegisterDeviceRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		WriteError(w, fmt.Errorf("invalid request body: %w", err), http.StatusBadRequest)
 		return
 	}
 
 	ctx := r.Context()
 	resp, err := h.deviceService.RegisterDevice(ctx, req)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		WriteError(w, err, http.StatusBadRequest)
 		return
 	}
 
 	// Generate JWT token for the device
 	token, err := auth.GenerateToken(resp.Device.ID)
 	if err != nil {
-		http.Error(w, "Failed to generate token", http.StatusInternalServerError)
+		WriteError(w, fmt.Errorf("failed to generate token: %w", err), http.StatusInternalServerError)
 		return
 	}
 	resp.Token = token
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	WriteJSON(w, http.StatusOK, resp)
 }
 
 // GetDevice handles GET /device/{id}
 func (h *DeviceHandler) GetDevice(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		WriteError(w, fmt.Errorf("method not allowed"), http.StatusMethodNotAllowed)
 		return
 	}
 
 	// Extract device ID from path (simplified - in production use a router)
 	deviceIDStr := r.URL.Query().Get("id")
 	if deviceIDStr == "" {
-		http.Error(w, "Device ID required", http.StatusBadRequest)
+		WriteError(w, fmt.Errorf("device ID required"), http.StatusBadRequest)
 		return
 	}
 
 	ctx := r.Context()
 	device, err := h.deviceService.GetDevice(ctx, deviceIDStr)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		WriteError(w, err, http.StatusNotFound)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(device)
+	WriteJSON(w, http.StatusOK, device)
 }
 
 // UpdateDevice handles PATCH /device/{id}
 func (h *DeviceHandler) UpdateDevice(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPatch {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		WriteError(w, fmt.Errorf("method not allowed"), http.StatusMethodNotAllowed)
 		return
 	}
 
 	// Extract device ID from path
 	deviceIDStr := r.URL.Query().Get("id")
 	if deviceIDStr == "" {
-		http.Error(w, "Device ID required", http.StatusBadRequest)
+		WriteError(w, fmt.Errorf("device ID required"), http.StatusBadRequest)
 		return
 	}
 
@@ -93,13 +92,13 @@ func (h *DeviceHandler) UpdateDevice(w http.ResponseWriter, r *http.Request) {
 		Nickname string `json:"nickname"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		WriteError(w, fmt.Errorf("invalid request body: %w", err), http.StatusBadRequest)
 		return
 	}
 
 	ctx := r.Context()
 	if err := h.deviceService.UpdateNickname(ctx, deviceIDStr, req.Nickname); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		WriteError(w, err, http.StatusBadRequest)
 		return
 	}
 

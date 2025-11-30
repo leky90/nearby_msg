@@ -3,6 +3,8 @@
  * Handles reverse geocoding (coordinates to address)
  */
 
+import { log } from '../lib/logging/logger';
+
 export interface GeocodingResult {
   address: string;
   formattedAddress?: string;
@@ -96,7 +98,7 @@ export async function reverseGeocode(
     // Fallback to display_name if available
     return data.display_name || null;
   } catch (err) {
-    console.error('Reverse geocoding failed:', err);
+    log.error('Reverse geocoding failed', err, { latitude, longitude });
     // Return null on error - we'll just show coordinates
     return null;
   }

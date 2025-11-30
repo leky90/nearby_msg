@@ -13,6 +13,7 @@ import {
 } from "../../services/status-service";
 import { getOrCreateDeviceId } from "../../services/device-storage";
 import { Button } from "../ui/button";
+import { log } from "../../lib/logging/logger";
 import {
   Card,
   CardHeader,
@@ -87,11 +88,13 @@ export function StatusSelector({
   });
 
   // Initialize form when status loads
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (currentStatus) {
       setSelectedType(currentStatus.status_type);
       setDescription(currentStatus.description || "");
     }
+    // Only run when currentStatus changes, not on every render
   }, [currentStatus]);
 
   // Mutation for updating status with optimistic updates
@@ -127,11 +130,13 @@ export function StatusSelector({
       onStatusUpdated?.(data);
     },
     // On error, rollback to previous value
-    onError: (err, _variables, context) => {
+    onError: (err, variables, context) => {
       if (context?.previousStatus !== undefined) {
         queryClient.setQueryData(["status"], context.previousStatus);
       }
-      console.error("Failed to update status:", err);
+      log.error("Failed to update status", err, {
+        statusType: variables.statusType,
+      });
     },
   });
 
@@ -183,7 +188,9 @@ export function StatusSelector({
   return (
     <Card className={className}>
       <CardHeader>
-        <CardTitle className="text-heading-2 leading-heading-2">{t("component.statusSelector.title")}</CardTitle>
+        <CardTitle className="text-heading-2 leading-heading-2">
+          {t("component.statusSelector.title")}
+        </CardTitle>
         <CardDescription className="text-body leading-body">
           {t("component.statusSelector.description")}
         </CardDescription>
@@ -196,16 +203,20 @@ export function StatusSelector({
         )}
 
         <div className="space-y-2">
-          <Label className="text-body leading-body">{t("component.statusSelector.status")}</Label>
+          <Label className="text-body leading-body">
+            {t("component.statusSelector.status")}
+          </Label>
           <div className="grid gap-3">
             {STATUS_OPTIONS.map((option) => {
               const isSelected = selectedType === option.type;
-              const variantClass = isSelected 
-                ? (option.type === "safe" ? "bg-safety text-white hover:bg-safety/90" 
-                   : option.type === "need_help" ? "bg-warning text-white hover:bg-warning/90"
-                   : "bg-sos text-white hover:bg-sos/90")
+              const variantClass = isSelected
+                ? option.type === "safe"
+                  ? "bg-safety text-white hover:bg-safety/90"
+                  : option.type === "need_help"
+                    ? "bg-warning text-white hover:bg-warning/90"
+                    : "bg-sos text-white hover:bg-sos/90"
                 : "outline";
-              
+
               return (
                 <Button
                   key={option.type}
@@ -217,12 +228,26 @@ export function StatusSelector({
                   onClick={() => handleStatusSelect(option.type)}
                   isDisabled={isLoading}
                 >
-                  <span className={cn("mr-2", isSelected ? "text-white" : option.color)}>{option.icon}</span>
-                  <div className="flex flex-col items-start">
-                  <span className="font-medium text-body leading-body">{option.label}</span>
-                  <span className={cn("text-caption leading-caption", isSelected ? "opacity-90" : "opacity-70")}>
-                    {option.description}
+                  <span
+                    className={cn(
+                      "mr-2",
+                      isSelected ? "text-white" : option.color
+                    )}
+                  >
+                    {option.icon}
                   </span>
+                  <div className="flex flex-col items-start">
+                    <span className="font-medium text-body leading-body">
+                      {option.label}
+                    </span>
+                    <span
+                      className={cn(
+                        "text-caption leading-caption",
+                        isSelected ? "opacity-90" : "opacity-70"
+                      )}
+                    >
+                      {option.description}
+                    </span>
                   </div>
                 </Button>
               );

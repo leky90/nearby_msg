@@ -123,11 +123,12 @@ func (r *StatusRepository) GetGroupStatusSummary(ctx context.Context, groupID st
 }
 
 // GetStatusesAfter retrieves user statuses updated after a given timestamp for a device
+// Excludes soft-deleted statuses (deleted_at IS NULL)
 func (r *StatusRepository) GetStatusesAfter(ctx context.Context, deviceID string, since time.Time, limit int) ([]*domain.UserStatus, error) {
 	query := `
 		SELECT id, device_id, status_type, description, created_at, updated_at
 		FROM user_status
-		WHERE device_id = $1 AND updated_at > $2
+		WHERE deleted_at IS NULL AND device_id = $1 AND updated_at > $2
 		ORDER BY updated_at ASC
 		LIMIT $3
 	`
@@ -158,4 +159,31 @@ func (r *StatusRepository) GetStatusesAfter(ctx context.Context, deviceID string
 	}
 
 	return statuses, rows.Err()
+}
+
+// GetDeletionsAfter retrieves IDs and timestamps of statuses deleted after a given timestamp for a device
+func (r *StatusRepository) GetDeletionsAfter(ctx context.Context, deviceID string, since time.Time, limit int) ([]DeletionInfo, error) {
+	query := `
+		SELECT id, deleted_at
+		FROM user_status
+		WHERE deleted_at > $1 AND deleted_at IS NOT NULL AND device_id = $2
+		ORDER BY deleted_at ASC
+		LIMIT $3
+	`
+	rows, err := r.pool.Query(ctx, query, since, deviceID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var deletions []DeletionInfo
+	for rows.Next() {
+		var del DeletionInfo
+		if err := rows.Scan(&del.ID, &del.DeletedAt); err != nil {
+			return nil, err
+		}
+		deletions = append(deletions, del)
+	}
+
+	return deletions, rows.Err()
 }

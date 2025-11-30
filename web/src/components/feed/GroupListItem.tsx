@@ -3,7 +3,7 @@
  * Simplified group card for list view using Shadcn Item component
  */
 
-import { LogIn, Star } from "lucide-react";
+import { LogIn, Star, Clock, RefreshCw, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -14,6 +14,7 @@ import {
   ItemTitle,
   ItemActions,
 } from "@/components/ui/item";
+import { useGroupSyncStatus } from "@/hooks/useGroupSyncStatus";
 import type { Group } from "@/domain/group";
 
 interface GroupListItemProps {
@@ -43,13 +44,30 @@ const groupTypeLabels: Record<Group["type"], string> = {
 export function GroupListItem({
   group,
   distanceDisplay,
-  latestMessagePreview: _latestMessagePreview,
+  latestMessagePreview: _latestMessagePreview, // eslint-disable-line @typescript-eslint/no-unused-vars
   isFavorited,
   unreadCount,
   onClick,
   onFavoriteToggle,
   className,
 }: GroupListItemProps) {
+  const syncStatus = useGroupSyncStatus(group.id);
+
+  const getSyncIcon = () => {
+    if (!syncStatus.hasPendingMutations) return null;
+
+    switch (syncStatus.mutationStatus) {
+      case "syncing":
+        return <RefreshCw className="h-3 w-3 text-blue-600 animate-spin" />;
+      case "pending":
+        return <Clock className="h-3 w-3 text-yellow-600" />;
+      case "failed":
+        return <AlertCircle className="h-3 w-3 text-red-600" />;
+      default:
+        return null;
+    }
+  };
+
   return (
     <Item variant="outline" size="default" className={cn("w-full", className)}>
       {/* Star icon in ItemMedia - clickable to toggle favorite */}
@@ -94,7 +112,7 @@ export function GroupListItem({
           <span className="truncate">{group.name}</span>
         </ItemTitle>
 
-        {/* Unread count and distance */}
+        {/* Unread count, distance, and sync status */}
         <div className="flex items-center gap-2 mt-1 text-sm text-muted-foreground">
           <Badge
             variant="outline"
@@ -109,6 +127,20 @@ export function GroupListItem({
             >
               {unreadCount} mới
             </Badge>
+          )}
+          {syncStatus.hasPendingMutations && (
+            <div className="flex items-center gap-1 text-[10px]">
+              {getSyncIcon()}
+              {syncStatus.mutationStatus === "pending" && (
+                <span className="text-yellow-600">Đang chờ</span>
+              )}
+              {syncStatus.mutationStatus === "syncing" && (
+                <span className="text-blue-600">Đang đồng bộ</span>
+              )}
+              {syncStatus.mutationStatus === "failed" && (
+                <span className="text-red-600">Lỗi</span>
+              )}
+            </div>
           )}
         </div>
       </ItemContent>

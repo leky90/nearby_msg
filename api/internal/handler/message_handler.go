@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -24,21 +25,21 @@ func NewMessageHandler(pinService *service.PinService) *MessageHandler {
 // PinMessage handles POST /messages/{id}/pin
 func (h *MessageHandler) PinMessage(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		WriteError(w, fmt.Errorf("method not allowed"), http.StatusMethodNotAllowed)
 		return
 	}
 
 	ctx := r.Context()
 	deviceID, ok := auth.GetDeviceIDFromContext(ctx)
 	if !ok {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		WriteError(w, fmt.Errorf("unauthorized"), http.StatusUnauthorized)
 		return
 	}
 
 	// Extract message ID from path
 	messageID := extractMessageIDFromPath(r.URL.Path)
 	if messageID == "" {
-		http.Error(w, "Message ID required", http.StatusBadRequest)
+		WriteError(w, fmt.Errorf("message ID required"), http.StatusBadRequest)
 		return
 	}
 
@@ -56,45 +57,43 @@ func (h *MessageHandler) PinMessage(w http.ResponseWriter, r *http.Request) {
 	pin, err := h.pinService.PinMessage(ctx, deviceID, messageID, req.Tag)
 	if err != nil {
 		if strings.Contains(err.Error(), "message not found") {
-			http.Error(w, err.Error(), http.StatusNotFound)
+			WriteError(w, err, http.StatusNotFound)
 			return
 		}
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		WriteError(w, err, http.StatusBadRequest)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(pin)
+	WriteJSON(w, http.StatusCreated, pin)
 }
 
 // UnpinMessage handles DELETE /messages/{id}/pin
 func (h *MessageHandler) UnpinMessage(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		WriteError(w, fmt.Errorf("method not allowed"), http.StatusMethodNotAllowed)
 		return
 	}
 
 	ctx := r.Context()
 	deviceID, ok := auth.GetDeviceIDFromContext(ctx)
 	if !ok {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		WriteError(w, fmt.Errorf("unauthorized"), http.StatusUnauthorized)
 		return
 	}
 
 	// Extract message ID from path
 	messageID := extractMessageIDFromPath(r.URL.Path)
 	if messageID == "" {
-		http.Error(w, "Message ID required", http.StatusBadRequest)
+		WriteError(w, fmt.Errorf("message ID required"), http.StatusBadRequest)
 		return
 	}
 
 	if err := h.pinService.UnpinMessage(ctx, deviceID, messageID); err != nil {
 		if strings.Contains(err.Error(), "not found") {
-			http.Error(w, err.Error(), http.StatusNotFound)
+			WriteError(w, err, http.StatusNotFound)
 			return
 		}
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		WriteError(w, err, http.StatusBadRequest)
 		return
 	}
 
@@ -121,7 +120,7 @@ func (h *MessageHandler) HandleMessageRoutes(w http.ResponseWriter, r *http.Requ
 	}
 
 	if messageID == "" {
-		http.Error(w, "Message ID required", http.StatusBadRequest)
+		WriteError(w, fmt.Errorf("message ID required"), http.StatusBadRequest)
 		return
 	}
 
@@ -132,12 +131,12 @@ func (h *MessageHandler) HandleMessageRoutes(w http.ResponseWriter, r *http.Requ
 		case http.MethodDelete:
 			h.UnpinMessage(w, r)
 		default:
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			WriteError(w, fmt.Errorf("method not allowed"), http.StatusMethodNotAllowed)
 		}
 		return
 	}
 
-	http.Error(w, "Not found", http.StatusNotFound)
+	WriteError(w, fmt.Errorf("not found"), http.StatusNotFound)
 }
 
 // extractMessageIDFromPath extracts message ID from URL path

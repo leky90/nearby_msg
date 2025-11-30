@@ -52,7 +52,7 @@ func (s *StatusService) UpdateStatus(ctx context.Context, deviceID string, req U
 	}
 
 	if err := status.Validate(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("status validation failed: %w", err)
 	}
 
 	if err := s.repo.Upsert(ctx, status); err != nil {

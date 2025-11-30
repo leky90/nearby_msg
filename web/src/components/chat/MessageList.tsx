@@ -13,6 +13,7 @@ import { ScrollArea } from "../ui/scroll-area";
 import { Skeleton } from "../ui/skeleton";
 import { cn } from "@/lib/utils";
 import { t } from "@/lib/i18n";
+import { log } from "../../lib/logging/logger";
 import { getDatabase } from "../../services/db";
 import type { Device } from "../../domain/device";
 import { groupMessages, type GroupedMessage } from "@/utils/message-grouping";
@@ -41,7 +42,7 @@ const VIRTUALIZATION_THRESHOLD = 50;
  */
 export function MessageList({
   messages,
-  groupId: _groupId,
+  groupId: _groupId, // eslint-disable-line @typescript-eslint/no-unused-vars
   onMessageClick,
   isLoading = false,
   scrollToMessageId,
@@ -74,7 +75,9 @@ export function MessageList({
               cache.set(deviceId, device);
             }
           } catch (err) {
-            console.error("Failed to load device:", err);
+            log.error("Failed to load device", err, {
+              deviceId,
+            });
           }
         }
       }

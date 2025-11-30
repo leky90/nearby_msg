@@ -3,11 +3,11 @@ package service
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
 
 	"nearby-msg/api/internal/domain"
 	"nearby-msg/api/internal/infrastructure/database"
+	"nearby-msg/api/internal/infrastructure/logging"
 	"nearby-msg/api/internal/utils"
 )
 
@@ -27,6 +27,10 @@ type ReplicationService struct {
 	statusRepo      *database.StatusRepository
 	replicationRepo *database.ReplicationRepository
 	messageService  *MessageService
+	groupService    *GroupService
+	favoriteService *FavoriteService
+	statusService   *StatusService
+	deviceService   *DeviceService
 }
 
 // NewReplicationService creates a new replication service.
@@ -38,6 +42,10 @@ func NewReplicationService(
 	statusRepo *database.StatusRepository,
 	replicationRepo *database.ReplicationRepository,
 	messageService *MessageService,
+	groupService *GroupService,
+	favoriteService *FavoriteService,
+	statusService *StatusService,
+	deviceService *DeviceService,
 ) *ReplicationService {
 	return &ReplicationService{
 		messageRepo:     messageRepo,
@@ -47,12 +55,50 @@ func NewReplicationService(
 		statusRepo:      statusRepo,
 		replicationRepo: replicationRepo,
 		messageService:  messageService,
+		groupService:    groupService,
+		favoriteService: favoriteService,
+		statusService:   statusService,
+		deviceService:   deviceService,
 	}
 }
 
-// PushMessagesRequest represents messages sent from the client to the server.
+// PushMessagesRequest represents mutations sent from the client to the server.
+// Extends existing messages-only format to support all mutation types.
 type PushMessagesRequest struct {
-	Messages []PushMessage `json:"messages"`
+	Messages  []PushMessage      `json:"messages,omitempty"`  // Existing messages format
+	Groups    []GroupMutation    `json:"groups,omitempty"`    // NEW: Group mutations
+	Favorites []FavoriteMutation `json:"favorites,omitempty"` // NEW: Favorite mutations
+	Status    []StatusMutation   `json:"status,omitempty"`    // NEW: Status mutations
+	Devices   []DeviceMutation   `json:"devices,omitempty"`   // NEW: Device mutations
+}
+
+// GroupMutation represents a group mutation (create or update)
+type GroupMutation struct {
+	ID              string   `json:"id"`                  // Group ID (client-generated for create)
+	MutationType    string   `json:"mutation_type"`       // "create" or "update"
+	Name            string   `json:"name,omitempty"`      // Required for create, optional for update
+	Type            string   `json:"type,omitempty"`      // Required for create
+	Latitude        *float64 `json:"latitude,omitempty"`  // Required for create
+	Longitude       *float64 `json:"longitude,omitempty"` // Required for create
+	RegionCode      *string  `json:"region_code,omitempty"`
+	CreatorDeviceID string   `json:"creator_device_id,omitempty"` // Required for create
+}
+
+// FavoriteMutation represents a favorite mutation (add or remove)
+type FavoriteMutation struct {
+	MutationType string `json:"mutation_type"` // "add" or "remove"
+	GroupID      string `json:"group_id"`      // Group ID to favorite/unfavorite
+}
+
+// StatusMutation represents a status mutation (update)
+type StatusMutation struct {
+	StatusType  string  `json:"status_type"`           // "safe", "need_help", "cannot_contact"
+	Description *string `json:"description,omitempty"` // Optional description
+}
+
+// DeviceMutation represents a device mutation (update nickname)
+type DeviceMutation struct {
+	Nickname string `json:"nickname"` // Updated nickname (1-50 characters)
 }
 
 // PushMessage represents a single message being pushed to the server.
@@ -93,11 +139,19 @@ type PullDocumentsRequest struct {
 	Limit       int                  `json:"limit,omitempty"`      // Max documents per collection
 }
 
+// Deletion represents a deletion signal for a specific entity
+type Deletion struct {
+	Collection string    `json:"collection"` // Collection name (e.g., "groups", "favorite_groups")
+	ID         string    `json:"id"`         // Entity ID that was deleted
+	DeletedAt  time.Time `json:"deleted_at"` // When deletion occurred on server
+}
+
 // PullDocumentsResponse represents the server response for multi-collection synchronization.
 // Checkpoints field provides per-collection checkpoint timestamps, allowing each collection
 // to maintain its own independent checkpoint for accurate incremental synchronization.
 type PullDocumentsResponse struct {
 	Documents   []Document           `json:"documents"`             // Unified array of synchronized documents
+	Deletions   []Deletion           `json:"deletions,omitempty"`   // Deletion signals (NEW)
 	Checkpoint  time.Time            `json:"checkpoint"`            // Latest checkpoint across all documents (legacy, for backward compatibility)
 	Checkpoints map[string]time.Time `json:"checkpoints,omitempty"` // Per-collection checkpoints: collection -> timestamp (each collection's checkpoint updated independently)
 	HasMore     bool                 `json:"has_more"`              // Indicates whether additional data is available
@@ -152,7 +206,7 @@ func (s *ReplicationService) PushMessages(ctx context.Context, deviceID string, 
 		}
 
 		if err := message.Validate(); err != nil {
-			return err
+			return fmt.Errorf("message validation failed: %w", err)
 		}
 
 		// Record SOS message if applicable
@@ -167,7 +221,7 @@ func (s *ReplicationService) PushMessages(ctx context.Context, deviceID string, 
 	}
 
 	if err := s.messageRepo.InsertMessages(ctx, domainMessages); err != nil {
-		return err
+		return fmt.Errorf("failed to insert messages: %w", err)
 	}
 
 	// Enforce retention per group.
@@ -179,6 +233,105 @@ func (s *ReplicationService) PushMessages(ctx context.Context, deviceID string, 
 		} else {
 			if err := s.messageRepo.TrimOldMessages(ctx, groupID, maxMessagesPerGroup); err != nil {
 				return fmt.Errorf("failed to enforce retention for group %s: %w", groupID, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// Note: CreateGroupRequest, UpdateGroupRequest, and UpdateStatusRequest are defined in group_service.go and status_service.go
+// They're in the same package, so we can use them directly
+
+// PushMutations handles all mutation types (groups, favorites, status, devices) from client
+func (s *ReplicationService) PushMutations(ctx context.Context, deviceID string, req PushMessagesRequest) error {
+	// Process group mutations FIRST
+	// This ensures groups exist on server before messages reference them
+	// Prevents foreign key constraint errors: "messages_group_id_fkey"
+	if len(req.Groups) > 0 {
+		for _, groupMut := range req.Groups {
+			if groupMut.MutationType == "create" {
+				// Create group
+				if groupMut.Latitude == nil || groupMut.Longitude == nil {
+					return fmt.Errorf("latitude and longitude are required for group creation")
+				}
+				if groupMut.Name == "" {
+					return fmt.Errorf("name is required for group creation")
+				}
+				if groupMut.Type == "" {
+					return fmt.Errorf("type is required for group creation")
+				}
+				if groupMut.CreatorDeviceID == "" {
+					return fmt.Errorf("creator_device_id is required for group creation")
+				}
+				createReq := CreateGroupRequest{
+					Name:            groupMut.Name,
+					Type:            domain.GroupType(groupMut.Type),
+					Latitude:        *groupMut.Latitude,
+					Longitude:       *groupMut.Longitude,
+					RegionCode:      groupMut.RegionCode,
+					CreatorDeviceID: groupMut.CreatorDeviceID,
+				}
+				// Note: Server will generate its own ID, ignoring client-provided ID
+				// Client's optimistic ID will be replaced during sync
+				if _, err := s.groupService.CreateGroup(ctx, createReq); err != nil {
+					return fmt.Errorf("failed to create group %s: %w", groupMut.ID, err)
+				}
+			} else if groupMut.MutationType == "update" {
+				// Update group name
+				if groupMut.Name != "" {
+					updateReq := UpdateGroupRequest{
+						Name: groupMut.Name,
+					}
+					if _, err := s.groupService.UpdateGroup(ctx, groupMut.ID, deviceID, updateReq); err != nil {
+						return fmt.Errorf("failed to update group %s: %w", groupMut.ID, err)
+					}
+				}
+			}
+		}
+	}
+
+	// Process messages AFTER groups are created
+	// This ensures all referenced groups exist on server
+	if len(req.Messages) > 0 {
+		if err := s.PushMessages(ctx, deviceID, req); err != nil {
+			return fmt.Errorf("failed to push messages: %w", err)
+		}
+	}
+
+	// Process favorite mutations
+	if len(req.Favorites) > 0 {
+		for _, favMut := range req.Favorites {
+			if favMut.MutationType == "add" {
+				if _, err := s.favoriteService.AddFavorite(ctx, deviceID, favMut.GroupID); err != nil {
+					return fmt.Errorf("failed to add favorite for group %s: %w", favMut.GroupID, err)
+				}
+			} else if favMut.MutationType == "remove" {
+				if err := s.favoriteService.RemoveFavorite(ctx, deviceID, favMut.GroupID); err != nil {
+					return fmt.Errorf("failed to remove favorite for group %s: %w", favMut.GroupID, err)
+				}
+			}
+		}
+	}
+
+	// Process status mutations
+	if len(req.Status) > 0 {
+		for _, statusMut := range req.Status {
+			updateReq := UpdateStatusRequest{
+				StatusType:  domain.StatusType(statusMut.StatusType),
+				Description: statusMut.Description,
+			}
+			if _, err := s.statusService.UpdateStatus(ctx, deviceID, updateReq); err != nil {
+				return fmt.Errorf("failed to update status: %w", err)
+			}
+		}
+	}
+
+	// Process device mutations
+	if len(req.Devices) > 0 {
+		for _, deviceMut := range req.Devices {
+			if err := s.deviceService.UpdateNickname(ctx, deviceID, deviceMut.Nickname); err != nil {
+				return fmt.Errorf("failed to update device nickname: %w", err)
 			}
 		}
 	}
@@ -313,14 +466,14 @@ func (s *ReplicationService) PullMessages(ctx context.Context, deviceID string, 
 
 	messages, err := s.messageRepo.GetMessagesAfter(ctx, since, limit)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get messages after checkpoint: %w", err)
 	}
 
 	var newCheckpoint time.Time = since
 	if len(messages) > 0 {
 		newCheckpoint = messages[len(messages)-1].CreatedAt
 		if err := s.messageRepo.UpsertCheckpoint(ctx, deviceID, newCheckpoint); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to upsert checkpoint: %w", err)
 		}
 	}
 
@@ -359,6 +512,7 @@ func (s *ReplicationService) PullDocuments(ctx context.Context, deviceID string,
 	defaultSince := time.Now().UTC().Add(defaultCheckpointDelta)
 
 	var allDocuments []Document
+	var allDeletions []Deletion
 	var latestCheckpoint time.Time = time.Time{}
 	checkpoints := make(map[string]time.Time) // Per-collection checkpoints
 	hasMore := false
@@ -389,7 +543,8 @@ func (s *ReplicationService) PullDocuments(ctx context.Context, deviceID string,
 			messages, err := s.messageRepo.GetMessagesAfter(ctx, since, limit)
 			if err != nil {
 				// Log error with structured context but continue with other collections (partial failure handling)
-				log.Printf("Failed to pull messages collection for device %s: %v (collection: messages, error_type: repository_error)", deviceID, err)
+				logger := logging.GetLogger()
+				logger.Warn("Failed to pull messages collection", "deviceID", deviceID, "collection", "messages", "error", err)
 				continue
 			}
 			if len(messages) > 0 {
@@ -421,7 +576,8 @@ func (s *ReplicationService) PullDocuments(ctx context.Context, deviceID string,
 			groups, err := s.groupRepo.GetGroupsAfter(ctx, since, limit)
 			if err != nil {
 				// Log error with structured context but continue with other collections (partial failure handling)
-				log.Printf("Failed to pull groups collection for device %s: %v (collection: groups, error_type: repository_error)", deviceID, err)
+				logger := logging.GetLogger()
+				logger.Warn("Failed to pull groups collection", "deviceID", deviceID, "collection", "groups", "error", err)
 				continue
 			}
 			if len(groups) > 0 {
@@ -438,7 +594,8 @@ func (s *ReplicationService) PullDocuments(ctx context.Context, deviceID string,
 			favorites, err := s.favoriteRepo.GetFavoritesAfter(ctx, deviceID, since, limit)
 			if err != nil {
 				// Log error with structured context but continue with other collections (partial failure handling)
-				log.Printf("Failed to pull favorite_groups collection for device %s: %v (collection: favorite_groups, error_type: repository_error)", deviceID, err)
+				logger := logging.GetLogger()
+				logger.Warn("Failed to pull favorite_groups collection", "deviceID", deviceID, "collection", "favorite_groups", "error", err)
 				continue
 			}
 			if len(favorites) > 0 {
@@ -455,7 +612,8 @@ func (s *ReplicationService) PullDocuments(ctx context.Context, deviceID string,
 			pins, err := s.pinRepo.GetPinsAfter(ctx, deviceID, since, limit)
 			if err != nil {
 				// Log error with structured context but continue with other collections (partial failure handling)
-				log.Printf("Failed to pull pinned_messages collection for device %s: %v (collection: pinned_messages, error_type: repository_error)", deviceID, err)
+				logger := logging.GetLogger()
+				logger.Warn("Failed to pull pinned_messages collection", "deviceID", deviceID, "collection", "pinned_messages", "error", err)
 				continue
 			}
 			if len(pins) > 0 {
@@ -472,7 +630,8 @@ func (s *ReplicationService) PullDocuments(ctx context.Context, deviceID string,
 			statuses, err := s.statusRepo.GetStatusesAfter(ctx, deviceID, since, limit)
 			if err != nil {
 				// Log error with structured context but continue with other collections (partial failure handling)
-				log.Printf("Failed to pull user_status collection for device %s: %v (collection: user_status, error_type: repository_error)", deviceID, err)
+				logger := logging.GetLogger()
+				logger.Warn("Failed to pull user_status collection", "deviceID", deviceID, "collection", "user_status", "error", err)
 				continue
 			}
 			if len(statuses) > 0 {
@@ -498,7 +657,8 @@ func (s *ReplicationService) PullDocuments(ctx context.Context, deviceID string,
 		if len(collectionDocs) > 0 {
 			if err := s.replicationRepo.UpsertCheckpoint(ctx, deviceID, collection, collectionCheckpoint); err != nil {
 				// Log error with structured context but continue with other collections (partial failure handling)
-				log.Printf("Failed to update checkpoint for collection %s, device %s: %v (error_type: checkpoint_update_error)", collection, deviceID, err)
+				logger := logging.GetLogger()
+				logger.Warn("Failed to update checkpoint", "collection", collection, "deviceID", deviceID, "error", err)
 				continue
 			}
 			// Store per-collection checkpoint
@@ -520,6 +680,72 @@ func (s *ReplicationService) PullDocuments(ctx context.Context, deviceID string,
 		if collectionHasMore {
 			hasMore = true
 		}
+
+		// Query deletions for this collection
+		switch collection {
+		case "messages":
+			deletionInfos, err := s.messageRepo.GetDeletionsAfter(ctx, since, limit)
+			if err != nil {
+				logger := logging.GetLogger()
+				logger.Warn("Failed to pull message deletions", "deviceID", deviceID, "collection", "messages", "error", err)
+			} else {
+				for _, del := range deletionInfos {
+					allDeletions = append(allDeletions, Deletion{
+						Collection: collection,
+						ID:         del.ID,
+						DeletedAt:  del.DeletedAt,
+					})
+				}
+			}
+
+		case "groups":
+			deletionInfos, err := s.groupRepo.GetDeletionsAfter(ctx, since, limit)
+			if err != nil {
+				logger := logging.GetLogger()
+				logger.Warn("Failed to pull group deletions", "deviceID", deviceID, "collection", "groups", "error", err)
+			} else {
+				for _, del := range deletionInfos {
+					allDeletions = append(allDeletions, Deletion{
+						Collection: collection,
+						ID:         del.ID,
+						DeletedAt:  del.DeletedAt,
+					})
+				}
+			}
+
+		case "favorite_groups":
+			deletionInfos, err := s.favoriteRepo.GetDeletionsAfter(ctx, deviceID, since, limit)
+			if err != nil {
+				logger := logging.GetLogger()
+				logger.Warn("Failed to pull favorite deletions", "deviceID", deviceID, "collection", "favorite_groups", "error", err)
+			} else {
+				for _, del := range deletionInfos {
+					allDeletions = append(allDeletions, Deletion{
+						Collection: collection,
+						ID:         del.ID,
+						DeletedAt:  del.DeletedAt,
+					})
+				}
+			}
+
+		case "user_status":
+			deletionInfos, err := s.statusRepo.GetDeletionsAfter(ctx, deviceID, since, limit)
+			if err != nil {
+				logger := logging.GetLogger()
+				logger.Warn("Failed to pull status deletions", "deviceID", deviceID, "collection", "user_status", "error", err)
+			} else {
+				for _, del := range deletionInfos {
+					allDeletions = append(allDeletions, Deletion{
+						Collection: collection,
+						ID:         del.ID,
+						DeletedAt:  del.DeletedAt,
+					})
+				}
+			}
+
+		case "pinned_messages":
+			// Pinned messages don't have deletion sync yet (not in scope)
+		}
 	}
 
 	// If no checkpoint was set, use current time
@@ -529,6 +755,7 @@ func (s *ReplicationService) PullDocuments(ctx context.Context, deviceID string,
 
 	return &PullDocumentsResponse{
 		Documents:   allDocuments,
+		Deletions:   allDeletions,     // Deletion signals
 		Checkpoint:  latestCheckpoint, // Legacy field for backward compatibility
 		Checkpoints: checkpoints,      // Per-collection checkpoints
 		HasMore:     hasMore,

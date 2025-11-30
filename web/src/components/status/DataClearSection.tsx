@@ -11,6 +11,7 @@ import { Modal } from "@/components/ui/modal";
 import { Heading, Text } from "react-aria-components";
 import { clearAllUserData } from "@/services/data-clear";
 import { showToast } from "@/utils/toast";
+import { log } from "@/lib/logging/logger";
 
 /**
  * DataClearSection component
@@ -31,7 +32,7 @@ export function DataClearSection() {
         window.location.reload();
       }, 1000);
     } catch (error) {
-      console.error("Failed to clear data:", error);
+      log.error("Failed to clear data", error);
       showToast("Không thể xóa dữ liệu. Vui lòng thử lại.", "error");
       setIsClearing(false);
     }

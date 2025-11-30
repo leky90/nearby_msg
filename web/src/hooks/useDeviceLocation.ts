@@ -4,12 +4,15 @@
  */
 
 import { useEffect } from "react";
-import { useAppStore } from "@/stores/app-store";
+import { useSelector, useDispatch } from "react-redux";
+import { selectDeviceLocation, setDeviceLocation, updateDeviceLocationAddress } from "@/store/slices/appSlice";
+import type { RootState } from "@/store";
 import { reverseGeocode } from "@/services/geocoding-service";
+import { log } from "@/lib/logging/logger";
 
 export function useDeviceLocation() {
-  const { deviceLocation, setDeviceLocation, updateDeviceLocationAddress } =
-    useAppStore();
+  const dispatch = useDispatch();
+  const deviceLocation = useSelector((state: RootState) => selectDeviceLocation(state));
 
   useEffect(() => {
     // If no location in store, try to load from localStorage (backward compatibility)
@@ -20,28 +23,28 @@ export function useDeviceLocation() {
           const loc = JSON.parse(savedLocation);
           if (loc.latitude && loc.longitude) {
             // Migrate to app store
-            const deviceLocation = {
+            const deviceLocationData = {
               latitude: loc.latitude,
               longitude: loc.longitude,
               updatedAt: new Date().toISOString(),
             };
-            setDeviceLocation(deviceLocation);
+            dispatch(setDeviceLocation(deviceLocationData));
 
             // Try to get address via reverse geocoding
             reverseGeocode(loc.latitude, loc.longitude)
               .then((address) => {
                 if (address) {
-                  updateDeviceLocationAddress(address);
+                  dispatch(updateDeviceLocationAddress(address));
                 }
               })
               .catch((err) => {
-                console.error("Failed to reverse geocode:", err);
+                log.error("Failed to reverse geocode", err, { latitude: loc.latitude, longitude: loc.longitude });
               });
           }
         } catch (err) {
-          console.error("Failed to parse saved location:", err);
+          log.error("Failed to parse saved location", err);
         }
       }
     }
-  }, [deviceLocation, setDeviceLocation, updateDeviceLocationAddress]);
+  }, [deviceLocation, dispatch]);
 }

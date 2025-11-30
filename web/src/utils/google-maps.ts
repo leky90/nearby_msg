@@ -2,6 +2,8 @@
  * Utility functions for parsing Google Maps URLs
  */
 
+import { log } from "../lib/logging/logger";
+
 /**
  * Parses Google Maps URL and extracts latitude and longitude
  * Supports various Google Maps URL formats:
@@ -67,7 +69,7 @@ export function parseGoogleMapsUrl(url: string): { latitude: number; longitude: 
 
     return null;
   } catch (error) {
-    console.error("Failed to parse Google Maps URL:", error);
+    log.error("Failed to parse Google Maps URL", error, { url });
     return null;
   }
 }

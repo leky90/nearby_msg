@@ -4,35 +4,58 @@
  */
 
 import type { FavoriteGroup } from '../domain/favorite_group';
-import { post, del } from './api';
 import { getDatabase } from './db';
 import { getOrCreateDeviceId } from './device-storage';
+import { queueMutation } from './mutation-queue';
+import { generateId } from '../utils/id';
 
 /**
  * Adds a group to favorites
+ * Supports offline-first: queues mutation when offline, calls API when online
  * @param groupId - Group ID to favorite
- * @returns Created favorite group
+ * @returns Created favorite group (optimistic when offline)
  */
 export async function addFavorite(groupId: string): Promise<FavoriteGroup> {
-  const response = await post<FavoriteGroup>(`/groups/${groupId}/favorite`, {});
-
-  // Store in RxDB
   const db = await getDatabase();
-  await db.favorite_groups.upsert(response);
+  const deviceId = getOrCreateDeviceId();
+  const now = new Date().toISOString();
 
-  return response;
+  // Create optimistic favorite in RxDB immediately
+  const optimisticFavorite: FavoriteGroup = {
+    id: generateId(),
+    device_id: deviceId,
+    group_id: groupId,
+    created_at: now,
+  };
+
+  // Store optimistic favorite in RxDB
+  await db.favorite_groups.upsert(optimisticFavorite);
+
+  // Queue mutation for sync (replication mechanism handles API call)
+  // No direct API call - replication sync will push mutation to server
+  await queueMutation(
+    'add_favorite',
+    'favorite_groups',
+    {
+      group_id: groupId,
+    },
+    optimisticFavorite.id
+  );
+  
+  // Return optimistic favorite
+  return optimisticFavorite;
 }
 
 /**
  * Removes a group from favorites
+ * Supports offline-first: queues mutation when offline, calls API when online
  * @param groupId - Group ID to unfavorite
  */
 export async function removeFavorite(groupId: string): Promise<void> {
-  await del(`/groups/${groupId}/favorite`);
-
-  // Remove from RxDB
   const db = await getDatabase();
   const deviceId = getOrCreateDeviceId();
+
+  // Optimistically remove from RxDB immediately
   const favorite = await db.favorite_groups
     .findOne({
       selector: {
@@ -42,8 +65,22 @@ export async function removeFavorite(groupId: string): Promise<void> {
     })
     .exec();
 
+  const favoriteId = favorite?.toJSON()?.id;
   if (favorite) {
     await favorite.remove();
+  }
+
+  // Queue mutation for sync (replication mechanism handles API call)
+  // No direct API call - replication sync will push mutation to server
+  if (favoriteId) {
+    await queueMutation(
+      'remove_favorite',
+      'favorite_groups',
+      {
+        group_id: groupId,
+      },
+      favoriteId
+    );
   }
 }
 
@@ -54,7 +91,8 @@ export async function removeFavorite(groupId: string): Promise<void> {
  */
 export async function fetchFavorites(): Promise<FavoriteGroup[]> {
   // For now, use cached favorites only
-  // TODO: Add GET /favorites endpoint when needed
+  // Note: GET /favorites endpoint can be added in the future if server-side filtering/sorting is needed
+  // Current implementation works well with RxDB caching and replication
   return getCachedFavorites();
 }
 

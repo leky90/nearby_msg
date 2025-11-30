@@ -217,11 +217,12 @@ func (r *GroupRepository) UpdateName(ctx context.Context, id string, name string
 }
 
 // GetGroupsAfter retrieves groups updated after a given timestamp
+// Excludes soft-deleted groups (deleted_at IS NULL)
 func (r *GroupRepository) GetGroupsAfter(ctx context.Context, since time.Time, limit int) ([]*domain.Group, error) {
 	query := `
 		SELECT id, name, type, latitude, longitude, region_code, creator_device_id, created_at, updated_at
 		FROM groups
-		WHERE updated_at > $1
+		WHERE deleted_at IS NULL AND updated_at > $1
 		ORDER BY updated_at ASC
 		LIMIT $2
 	`
@@ -255,4 +256,31 @@ func (r *GroupRepository) GetGroupsAfter(ctx context.Context, since time.Time, l
 	}
 
 	return groups, rows.Err()
+}
+
+// GetDeletionsAfter retrieves IDs and timestamps of groups deleted after a given timestamp
+func (r *GroupRepository) GetDeletionsAfter(ctx context.Context, since time.Time, limit int) ([]DeletionInfo, error) {
+	query := `
+		SELECT id, deleted_at
+		FROM groups
+		WHERE deleted_at > $1 AND deleted_at IS NOT NULL
+		ORDER BY deleted_at ASC
+		LIMIT $2
+	`
+	rows, err := r.pool.Query(ctx, query, since, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var deletions []DeletionInfo
+	for rows.Next() {
+		var del DeletionInfo
+		if err := rows.Scan(&del.ID, &del.DeletedAt); err != nil {
+			return nil, err
+		}
+		deletions = append(deletions, del)
+	}
+
+	return deletions, rows.Err()
 }

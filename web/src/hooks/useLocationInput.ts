@@ -7,8 +7,11 @@ import { useState, useCallback, useEffect } from "react";
 import { getCurrentLocation, isGeolocationAvailable } from "@/services/location-service";
 import { parseGoogleMapsUrl } from "@/utils/google-maps";
 import { reverseGeocode } from "@/services/geocoding-service";
-import { useAppStore } from "@/stores/app-store";
+import { useSelector, useDispatch } from "react-redux";
+import { selectDeviceLocation, setDeviceLocation, updateDeviceLocationAddress } from "@/store/slices/appSlice";
+import type { RootState } from "@/store";
 import { showToast } from "@/utils/toast";
+import { log } from "@/lib/logging/logger";
 
 export interface Location {
   latitude: number;
@@ -31,8 +34,8 @@ export function useLocationInput(options: UseLocationInputOptions = {}) {
     storageKey = "device_location",
   } = options;
 
-  const { deviceLocation, setDeviceLocation, updateDeviceLocationAddress } =
-    useAppStore();
+  const dispatch = useDispatch();
+  const deviceLocation = useSelector((state: RootState) => selectDeviceLocation(state));
   const [location, setLocation] = useState<Location | null>(
     deviceLocation ? { latitude: deviceLocation.latitude, longitude: deviceLocation.longitude } : null
   );
@@ -88,17 +91,17 @@ export function useLocationInput(options: UseLocationInputOptions = {}) {
           longitude: newLocation.longitude,
           updatedAt: new Date().toISOString(),
         };
-        setDeviceLocation(deviceLocationData);
+        dispatch(setDeviceLocation(deviceLocationData));
         
         // Try to get address via reverse geocoding
         reverseGeocode(newLocation.latitude, newLocation.longitude)
           .then((address) => {
             if (address) {
-              updateDeviceLocationAddress(address);
+              dispatch(updateDeviceLocationAddress(address));
             }
           })
           .catch((err) => {
-            console.error("Failed to reverse geocode:", err);
+            log.error("Failed to reverse geocode", err, { latitude: newLocation.latitude, longitude: newLocation.longitude });
           });
         
         if (saveToStorage) {
@@ -118,7 +121,7 @@ export function useLocationInput(options: UseLocationInputOptions = {}) {
         setShowManualInput(true);
       }
     } catch (err) {
-      console.error("Failed to get GPS location:", err);
+      log.error("Failed to get GPS location", err);
       setLocationError(
         "Lỗi khi lấy vị trí từ GPS. Vui lòng thử lại hoặc nhập thủ công."
       );
@@ -126,7 +129,7 @@ export function useLocationInput(options: UseLocationInputOptions = {}) {
     } finally {
       setIsLoadingLocation(false);
     }
-  }, [onLocationSet, saveToStorage, storageKey, setDeviceLocation, updateDeviceLocationAddress, deviceLocation]);
+  }, [onLocationSet, saveToStorage, storageKey, dispatch, deviceLocation]);
 
   const handleGoogleMapsUrlChange = useCallback((value: string) => {
     setGoogleMapsUrl(value);
@@ -161,11 +164,11 @@ export function useLocationInput(options: UseLocationInputOptions = {}) {
         reverseGeocode(parsed.latitude, parsed.longitude)
           .then((address) => {
             if (address) {
-              updateDeviceLocationAddress(address);
+              dispatch(updateDeviceLocationAddress(address));
             }
           })
           .catch((err) => {
-            console.error("Failed to reverse geocode:", err);
+            log.error("Failed to reverse geocode", err, { latitude: parsed.latitude, longitude: parsed.longitude });
           });
         
         if (saveToStorage) {
@@ -183,13 +186,13 @@ export function useLocationInput(options: UseLocationInputOptions = {}) {
         setLocation(null);
       }
     } catch (err) {
-      console.error("Failed to parse Google Maps URL:", err);
+      log.error("Failed to parse Google Maps URL", err, { url: googleMapsUrl });
       setLocationError("Lỗi khi xử lý link. Vui lòng thử lại.");
       setLocation(null);
     } finally {
       setIsParsingUrl(false);
     }
-  }, [googleMapsUrl, location, onLocationSet, saveToStorage, storageKey, setDeviceLocation, updateDeviceLocationAddress]);
+  }, [googleMapsUrl, location, onLocationSet, saveToStorage, storageKey, dispatch]);
 
   const handleShowManualInput = useCallback(() => {
     setShowManualInput(true);
@@ -213,7 +216,7 @@ export function useLocationInput(options: UseLocationInputOptions = {}) {
     if (saveToStorage) {
       localStorage.removeItem(storageKey);
     }
-  }, [setDeviceLocation, saveToStorage, storageKey]);
+  }, [dispatch, saveToStorage, storageKey]);
 
   return {
     location,

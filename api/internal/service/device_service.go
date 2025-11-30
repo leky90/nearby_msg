@@ -64,7 +64,7 @@ func (s *DeviceService) RegisterDevice(ctx context.Context, req RegisterDeviceRe
 
 	// Validate nickname
 	if err := domain.ValidateNickname(nickname); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("nickname validation failed: %w", err)
 	}
 
 	// Create new device
@@ -74,7 +74,7 @@ func (s *DeviceService) RegisterDevice(ctx context.Context, req RegisterDeviceRe
 	}
 
 	if err := device.Validate(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("device validation failed: %w", err)
 	}
 
 	if err := s.repo.Create(ctx, device); err != nil {
@@ -89,7 +89,7 @@ func (s *DeviceService) RegisterDevice(ctx context.Context, req RegisterDeviceRe
 // UpdateNickname updates a device's nickname
 func (s *DeviceService) UpdateNickname(ctx context.Context, deviceID string, nickname string) error {
 	if err := domain.ValidateNickname(nickname); err != nil {
-		return err
+		return fmt.Errorf("nickname validation failed: %w", err)
 	}
 
 	return s.repo.UpdateNickname(ctx, deviceID, nickname)

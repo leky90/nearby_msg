@@ -36,30 +36,42 @@ func NewReplicationHandler(replicationService *service.ReplicationService) *Repl
 // Push handles POST /replicate/push
 func (h *ReplicationHandler) Push(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		WriteError(w, fmt.Errorf("method not allowed"), http.StatusMethodNotAllowed)
 		return
 	}
 
 	ctx := r.Context()
 	deviceID, ok := auth.GetDeviceIDFromContext(ctx)
 	if !ok {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		WriteError(w, fmt.Errorf("unauthorized"), http.StatusUnauthorized)
 		return
 	}
 
 	var req service.PushMessagesRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		WriteError(w, fmt.Errorf("invalid request body: %w", err), http.StatusBadRequest)
 		return
 	}
 
-	if !h.allowMessages(deviceID, len(req.Messages)) {
-		http.Error(w, "Rate limit exceeded (10 messages/minute)", http.StatusTooManyRequests)
+	// Check if request has any mutations (messages or other types)
+	hasMutations := len(req.Messages) > 0 || len(req.Groups) > 0 || len(req.Favorites) > 0 || len(req.Status) > 0 || len(req.Devices) > 0
+
+	if !hasMutations {
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 
-	if err := h.replicationService.PushMessages(ctx, deviceID, req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	// Rate limit only for messages (existing behavior)
+	if len(req.Messages) > 0 {
+		if !h.allowMessages(deviceID, len(req.Messages)) {
+			WriteError(w, fmt.Errorf("rate limit exceeded (10 messages/minute)"), http.StatusTooManyRequests)
+			return
+		}
+	}
+
+	// Use PushMutations to handle all mutation types
+	if err := h.replicationService.PushMutations(ctx, deviceID, req); err != nil {
+		WriteError(w, err, http.StatusBadRequest)
 		return
 	}
 
@@ -70,21 +82,21 @@ func (h *ReplicationHandler) Push(w http.ResponseWriter, r *http.Request) {
 // Supports both legacy format (messages-only) and new format (multi-collection)
 func (h *ReplicationHandler) Pull(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		WriteError(w, fmt.Errorf("method not allowed"), http.StatusMethodNotAllowed)
 		return
 	}
 
 	ctx := r.Context()
 	deviceID, ok := auth.GetDeviceIDFromContext(ctx)
 	if !ok {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		WriteError(w, fmt.Errorf("unauthorized"), http.StatusUnauthorized)
 		return
 	}
 
 	// Read body bytes (can only read once)
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
-		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		WriteError(w, fmt.Errorf("failed to read request body: %w", err), http.StatusBadRequest)
 		return
 	}
 	r.Body.Close()
@@ -92,7 +104,7 @@ func (h *ReplicationHandler) Pull(w http.ResponseWriter, r *http.Request) {
 	// Decode to detect format
 	var rawReq map[string]interface{}
 	if err := json.Unmarshal(bodyBytes, &rawReq); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		WriteError(w, fmt.Errorf("invalid request body: %w", err), http.StatusBadRequest)
 		return
 	}
 
@@ -104,50 +116,48 @@ func (h *ReplicationHandler) Pull(w http.ResponseWriter, r *http.Request) {
 		// Legacy format: messages only
 		var legacyReq service.PullMessagesRequest
 		if err := json.Unmarshal(bodyBytes, &legacyReq); err != nil {
-			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			WriteError(w, fmt.Errorf("invalid request body: %w", err), http.StatusBadRequest)
 			return
 		}
 
 		resp, err := h.replicationService.PullMessages(ctx, deviceID, legacyReq)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			WriteError(w, err, http.StatusBadRequest)
 			return
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		WriteJSON(w, http.StatusOK, resp)
 		return
 	}
 
 	// New format: multi-collection
 	var req service.PullDocumentsRequest
 	if err := json.Unmarshal(bodyBytes, &req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		WriteError(w, fmt.Errorf("invalid request body: %w", err), http.StatusBadRequest)
 		return
 	}
 
 	// Validate collections
 	if len(req.Collections) == 0 {
-		http.Error(w, "collections array cannot be empty", http.StatusBadRequest)
+		WriteError(w, fmt.Errorf("collections array cannot be empty"), http.StatusBadRequest)
 		return
 	}
 
 	// Validate each collection name
 	for _, collection := range req.Collections {
 		if !service.ValidCollections[collection] {
-			http.Error(w, fmt.Sprintf("invalid collection: %s", collection), http.StatusBadRequest)
+			WriteError(w, fmt.Errorf("invalid collection: %s", collection), http.StatusBadRequest)
 			return
 		}
 	}
 
 	resp, err := h.replicationService.PullDocuments(ctx, deviceID, req)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		WriteError(w, err, http.StatusBadRequest)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	WriteJSON(w, http.StatusOK, resp)
 }
 
 func (h *ReplicationHandler) allowMessages(deviceID string, count int) bool {

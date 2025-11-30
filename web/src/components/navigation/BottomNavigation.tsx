@@ -1,6 +1,12 @@
 import { AlertTriangle, Star, Compass, User } from "lucide-react";
-import { useNavigationStore, type TabType } from "@/stores/navigation-store";
-import { useAppStore } from "@/stores/app-store";
+import { useSelector, useDispatch } from "react-redux";
+import {
+  selectActiveTab,
+  setActiveTab,
+  type TabType,
+} from "@/store/slices/navigationSlice";
+import { selectUserStatus } from "@/store/slices/appSlice";
+import type { RootState } from "@/store";
 import { cn } from "@/lib/utils";
 
 const tabs: {
@@ -41,8 +47,13 @@ const tabs: {
 ];
 
 export function BottomNavigation() {
-  const { activeTab, setActiveTab } = useNavigationStore();
-  const { userStatus } = useAppStore();
+  const dispatch = useDispatch();
+  const activeTab = useSelector((state: RootState) => selectActiveTab(state));
+  const userStatus = useSelector((state: RootState) => selectUserStatus(state));
+
+  const handleSetActiveTab = (tab: TabType) => {
+    dispatch(setActiveTab(tab));
+  };
 
   const statusRingColor =
     userStatus?.status_type === "need_help"
@@ -72,9 +83,9 @@ export function BottomNavigation() {
               key={tab.id}
               onClick={() => {
                 if (isUserTab) {
-                  setActiveTab("status");
+                  handleSetActiveTab("status");
                 } else {
-                  setActiveTab(tab.id as TabType);
+                  handleSetActiveTab(tab.id as TabType);
                 }
               }}
               className={cn(

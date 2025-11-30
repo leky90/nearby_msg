@@ -11,6 +11,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { updateGroupName } from "@/services/group-service";
 import { showToast } from "@/utils/toast";
 import type { Group } from "@/domain/group";
+import { log } from "@/lib/logging/logger";
 
 export interface GroupNameEditorProps {
   group: Group;
@@ -101,7 +102,10 @@ export function GroupNameEditor({
       onGroupUpdated?.(updatedGroup);
       showToast("Đã cập nhật tên khu vực", "success");
     } catch (err) {
-      console.error("Failed to update group name:", err);
+      log.error("Failed to update group name", err, {
+        groupId: group.id,
+        newName: trimmed,
+      });
       let errorMessage = "Không thể cập nhật tên khu vực";
 
       if (err instanceof Error) {

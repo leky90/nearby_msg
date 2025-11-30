@@ -5,6 +5,7 @@
  */
 
 import { generateId } from '../utils/id';
+import { log } from '../lib/logging/logger';
 
 const DEVICE_ID_KEY = 'nearby_msg_device_id';
 const DEVICE_ID_KEY_FALLBACK = 'nearby_msg_device_id_fallback';
@@ -49,7 +50,7 @@ export function setDeviceId(deviceId: string): void {
     try {
       sessionStorage.setItem(DEVICE_ID_KEY_FALLBACK, deviceId);
     } catch {
-      console.error('Failed to store device ID:', error);
+      log.error('Failed to store device ID', error);
     }
   }
 }

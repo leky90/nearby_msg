@@ -5,8 +5,11 @@
 
 import type { Group, NearbyGroupsRequest, NearbyGroupsResponse } from '../domain/group';
 import { calculateDistance } from '../domain/group';
-import { get, post, put } from './api';
+import { get, post } from './api';
 import { getDatabase } from './db';
+import { queueMutation } from './mutation-queue';
+import { generateId } from '../utils/id';
+import { isOnline } from './network-status';
 
 /**
  * Discovers nearby groups using cache-first approach.
@@ -86,8 +89,11 @@ async function getCachedNearbyGroups(
 
 /**
  * Creates a new group
+ * Supports offline-first: queues mutation when offline, calls API when online
+ * Checks if device already has a group before creating (prevents duplicate groups)
  * @param group - Group creation data
- * @returns Created group
+ * @returns Created group (optimistic when offline)
+ * @throws Error if device already has a group
  */
 export async function createGroup(group: {
   name: string;
@@ -96,26 +102,145 @@ export async function createGroup(group: {
   longitude: number;
   region_code?: string;
 }): Promise<Group> {
-  const response = await post<Group>('/groups', group);
-
-  // Store in RxDB
   const db = await getDatabase();
-  await db.groups.upsert(response);
+  const deviceId = localStorage.getItem('device_id') || '';
 
-  return response;
+  // Check if device already has a group (prevent duplicate creation)
+  const existingGroup = await db.groups
+    .findOne({ selector: { creator_device_id: deviceId } })
+    .exec();
+  
+  if (existingGroup) {
+    throw new Error('device has already created a group');
+  }
+
+  // Generate temporary ID for optimistic group
+  const tempGroupId = generateId();
+  const now = new Date().toISOString();
+
+  // Create optimistic group in RxDB immediately
+  const optimisticGroup: Group = {
+    id: tempGroupId,
+    name: group.name,
+    type: group.type,
+    latitude: group.latitude,
+    longitude: group.longitude,
+    region_code: group.region_code,
+    creator_device_id: deviceId,
+    created_at: now,
+    updated_at: now,
+  };
+
+  // Store optimistic group in RxDB
+  await db.groups.upsert(optimisticGroup);
+
+  // Check if online
+  if (isOnline()) {
+    try {
+      // Online: Call API directly
+      const response = await post<Group>('/groups', group);
+
+      // Replace optimistic group with server response
+      await db.groups.upsert(response);
+
+      // Remove optimistic group if ID changed
+      if (response.id !== tempGroupId) {
+        await db.groups.findOne(tempGroupId).remove();
+      }
+
+      return response;
+    } catch (err) {
+      // Check if error is "already created group" (409 Conflict)
+      const isApiError = err && typeof err === 'object' && 'status' in err;
+      const status = isApiError ? (err as { status: number }).status : undefined;
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      
+      if (
+        status === 409 ||
+        errorMessage.includes('already created') ||
+        errorMessage.includes('409') ||
+        errorMessage.includes('Conflict')
+      ) {
+        // Remove optimistic group on conflict
+        try {
+          const optimisticDoc = await db.groups.findOne(tempGroupId).exec();
+          if (optimisticDoc) {
+            await optimisticDoc.remove();
+          }
+        } catch {
+          // Ignore removal errors
+        }
+        throw new Error('device has already created a group');
+      }
+
+      // Other API errors: queue mutation for retry
+      await queueMutation(
+        'create_group',
+        'groups',
+        {
+          name: group.name,
+          type: group.type,
+          latitude: group.latitude,
+          longitude: group.longitude,
+          region_code: group.region_code,
+          creator_device_id: deviceId,
+        },
+        tempGroupId
+      );
+      // Return optimistic group
+      return optimisticGroup;
+    }
+  } else {
+    // Offline: Queue mutation for sync when online
+    await queueMutation(
+      'create_group',
+      'groups',
+      {
+        name: group.name,
+        type: group.type,
+        latitude: group.latitude,
+        longitude: group.longitude,
+        region_code: group.region_code,
+        creator_device_id: deviceId,
+      },
+      tempGroupId
+    );
+    // Return optimistic group
+    return optimisticGroup;
+  }
 }
 
 /**
- * Gets a group from cache (RxDB) first, falls back to API only on cache miss.
- * This eliminates unnecessary API calls when groups are already synced via replication.
+ * Checks if the current device has already created a group
+ * @returns The group created by current device, or null if none exists
+ */
+export async function getDeviceCreatedGroup(): Promise<Group | null> {
+  const db = await getDatabase();
+  const deviceId = localStorage.getItem('device_id') || '';
+  
+  if (!deviceId) {
+    return null;
+  }
+  
+  const groupDoc = await db.groups
+    .findOne({ selector: { creator_device_id: deviceId } })
+    .exec();
+  
+  return groupDoc ? (groupDoc.toJSON() as Group) : null;
+}
+
+/**
+ * Gets a group by ID from RxDB (synced via replication).
+ * RxDB-first approach: reads from local cache, only falls back to API on cache miss.
  * 
- * Performance: Reduces API calls by 90%+ when groups are available in local storage.
- * Replication sync keeps cache fresh (syncs every 5 seconds), so cached groups are up-to-date.
+ * Performance: Eliminates unnecessary API calls when groups are already synced.
+ * Replication sync keeps cache fresh (every 5 seconds), so cached groups are up-to-date.
  * 
  * @param groupId - Group ID
  * @returns Group or null if not found
  */
-export async function getGroupFromCache(groupId: string): Promise<Group | null> {
+export async function getGroup(groupId: string): Promise<Group | null> {
+  // RxDB-first: Read from cache (synced via replication mechanism)
   const db = await getDatabase();
   const cached = await db.groups.findOne(groupId).exec();
   
@@ -125,30 +250,16 @@ export async function getGroupFromCache(groupId: string): Promise<Group | null> 
     return cached.toJSON() as Group;
   }
   
-  // Cache miss: fallback to API
-  return getGroup(groupId);
-}
-
-/**
- * Gets a group by ID (API-first approach, used as fallback for cache misses)
- * @param groupId - Group ID
- * @returns Group or null if not found
- */
-export async function getGroup(groupId: string): Promise<Group | null> {
+  // Cache miss: Fallback to API only if group not in local DB
+  // This happens on first load or if group was deleted locally
   try {
-    // Use path parameter instead of query parameter: /groups/{id}
     const response = await get<Group>(`/groups/${groupId}`);
-
-    // Store in RxDB
-    const db = await getDatabase();
+    // Store in RxDB for future cache hits
     await db.groups.upsert(response);
-
     return response;
   } catch {
-    // Try to get from cache
-    const db = await getDatabase();
-    const cached = await db.groups.findOne(groupId).exec();
-    return cached ? (cached.toJSON() as Group) : null;
+    // API failed or group not found
+    return null;
   }
 }
 
@@ -186,17 +297,45 @@ export async function suggestGroupNameAndType(
 
 /**
  * Updates a group's name
+ * Supports offline-first: queues mutation when offline, calls API when online
  * @param groupId - Group ID
  * @param name - New name
- * @returns Updated group
+ * @returns Updated group (optimistic when offline)
  */
 export async function updateGroupName(groupId: string, name: string): Promise<Group> {
-  const response = await put<Group>(`/groups/${groupId}`, { name });
-
-  // Update in RxDB
   const db = await getDatabase();
-  await db.groups.upsert(response);
 
-  return response;
+  // Get existing group for optimistic update
+  const existingGroup = await db.groups.findOne(groupId).exec();
+  if (!existingGroup) {
+    throw new Error('Group not found');
+  }
+
+  const existing = existingGroup.toJSON() as Group;
+  const now = new Date().toISOString();
+
+  // Create optimistic update in RxDB immediately
+  const optimisticGroup: Group = {
+    ...existing,
+    name,
+    updated_at: now,
+  };
+
+  // Store optimistic update in RxDB
+  await db.groups.upsert(optimisticGroup);
+
+  // Queue mutation for sync (replication mechanism handles API call)
+  // No direct API call - replication sync will push mutation to server
+  await queueMutation(
+    'update_group',
+    'groups',
+    {
+      name,
+    },
+    groupId
+  );
+  
+  // Return optimistic update
+  return optimisticGroup;
 }
 

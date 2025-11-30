@@ -7,6 +7,7 @@ import { getCurrentLocation } from "@/services/location-service";
 import { cn } from "@/lib/utils";
 import type { SOSType } from "@/domain/message";
 import { showToast } from "@/utils/toast";
+import { log } from "@/lib/logging/logger";
 
 interface SOSOverlayProps {
   isOpen: boolean;
@@ -62,7 +63,7 @@ export function SOSOverlay({
             }
           }
         } catch (err) {
-          console.error("Failed to find nearest group:", err);
+          log.error("Failed to find nearest group", err);
         }
       };
       findNearestGroup();

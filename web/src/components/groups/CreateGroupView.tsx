@@ -6,10 +6,11 @@
 import { useState, useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
-import { createGroup } from "@/services/group-service";
+import { createGroup, getDeviceCreatedGroup } from "@/services/group-service";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { log } from "@/lib/logging/logger";
 import {
   Select,
   SelectContent,
@@ -20,7 +21,9 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { LocationInput } from "@/components/common/LocationInput";
 import { useLocationInput } from "@/hooks/useLocationInput";
-import { useAppStore } from "@/stores/app-store";
+import { useSelector } from "react-redux";
+import { selectDeviceLocation } from "@/store/slices/appSlice";
+import type { RootState } from "@/store";
 import { showToast } from "@/utils/toast";
 import { t } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
@@ -51,11 +54,31 @@ export function CreateGroupView({
   onGroupCreated,
   onCancel,
 }: CreateGroupViewProps) {
+  const deviceLocation = useSelector((state: RootState) =>
+    selectDeviceLocation(state)
+  );
   const queryClient = useQueryClient();
   const [name, setName] = useState("");
   const [type, setType] = useState<Group["type"]>("village");
   const [error, setError] = useState<string | null>(null);
+  const [hasGroup, setHasGroup] = useState<boolean | null>(null);
   const GROUP_TYPES = getGroupTypes();
+
+  // Check if device already has a group on mount
+  useEffect(() => {
+    const checkExistingGroup = async () => {
+      const group = await getDeviceCreatedGroup();
+      if (group) {
+        setHasGroup(true);
+        setError(
+          "Bạn đã tạo nhóm khu vực. Mỗi thiết bị chỉ có thể tạo một nhóm."
+        );
+      } else {
+        setHasGroup(false);
+      }
+    };
+    void checkExistingGroup();
+  }, []);
 
   const locationInput = useLocationInput({
     saveToStorage: false,
@@ -68,7 +91,7 @@ export function CreateGroupView({
   useEffect(() => {
     const loadLocation = async () => {
       // If location is already set in app store, use it
-      const { deviceLocation } = useAppStore.getState();
+      // deviceLocation is already available from selector
       if (deviceLocation) {
         // Location already exists, don't request again
         return;
@@ -88,7 +111,7 @@ export function CreateGroupView({
           locationInput.setShowManualInput(true);
         }
       } catch (err) {
-        console.error("Failed to get location:", err);
+        log.error("Failed to get location", err);
         setError(
           "Không thể lấy vị trí. Vui lòng bật GPS hoặc nhập link Google Maps."
         );
@@ -113,6 +136,7 @@ export function CreateGroupView({
       // Invalidate groups queries to refresh feeds
       queryClient.invalidateQueries({ queryKey: ["nearby-groups"] });
       queryClient.invalidateQueries({ queryKey: ["favorite-groups"] });
+      // Show success message (works for both online and offline)
       showToast("Đã tạo nhóm khu vực thành công!", "success");
       onGroupCreated(group);
     },
@@ -129,7 +153,14 @@ export function CreateGroupView({
       } else {
         setError(errorMessage);
       }
-      showToast(errorMessage, "error");
+      // Only show error toast if it's a real error (not offline queuing)
+      // Offline mutations are queued silently and will sync when online
+      if (
+        !errorMessage.includes("network") &&
+        !errorMessage.includes("fetch")
+      ) {
+        showToast(errorMessage, "error");
+      }
     },
   });
 
@@ -201,7 +232,7 @@ export function CreateGroupView({
           <LocationInput
             locationInput={locationInput}
             showInstructions={false}
-            disabled={createGroupMutation.isPending}
+            disabled={createGroupMutation.isPending || hasGroup === true}
           />
 
           {/* Group Type */}
@@ -211,7 +242,9 @@ export function CreateGroupView({
               value={type}
               onValueChange={(value) => setType(value as Group["type"])}
               disabled={
-                locationInput.isLoadingLocation || createGroupMutation.isPending
+                locationInput.isLoadingLocation ||
+                createGroupMutation.isPending ||
+                hasGroup === true
               }
             >
               <SelectTrigger id="group-type">
@@ -241,7 +274,9 @@ export function CreateGroupView({
               maxLength={100}
               autoFocus={!locationInput.showManualInput}
               disabled={
-                locationInput.isLoadingLocation || createGroupMutation.isPending
+                locationInput.isLoadingLocation ||
+                createGroupMutation.isPending ||
+                hasGroup === true
               }
               className={cn(error && "border-destructive")}
             />
@@ -256,10 +291,10 @@ export function CreateGroupView({
             <Button
               variant="outline"
               onPress={onCancel}
-              isDisabled={createGroupMutation.isPending}
+              isDisabled={createGroupMutation.isPending || hasGroup === true}
               className="flex-1"
             >
-              Hủy
+              {hasGroup === true ? "Đóng" : "Hủy"}
             </Button>
             <button
               type="submit"
@@ -267,7 +302,8 @@ export function CreateGroupView({
                 locationInput.isLoadingLocation ||
                 createGroupMutation.isPending ||
                 !name.trim() ||
-                !locationInput.location
+                !locationInput.location ||
+                hasGroup === true
               }
               className="flex-1 h-12 inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all cursor-default outline-none border border-transparent bg-primary text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50"
             >

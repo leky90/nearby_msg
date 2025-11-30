@@ -1,5 +1,6 @@
 import { useNavigate } from "react-router-dom";
-import { useNavigationStore } from "@/stores/navigation-store";
+import { useDispatch } from "react-redux";
+import { setActiveTab } from "@/store/slices/navigationSlice";
 import { useLocation } from "@/hooks/useLocation";
 import { useFavorites } from "@/hooks/useFavorites";
 import { useGroups } from "@/hooks/useGroups";
@@ -21,11 +22,15 @@ export function FollowingFeed({
   onGroupSelect,
   className,
 }: FollowingFeedProps) {
-  const { setActiveTab } = useNavigationStore();
+  const dispatch = useDispatch();
   const navigate = useNavigate();
 
   // Location management (extracted to hook)
-  const { location, isLoading: isLoadingLocation, refetch: refetchLocation } = useLocation();
+  const {
+    location,
+    isLoading: isLoadingLocation,
+    refetch: refetchLocation,
+  } = useLocation();
 
   // Favorites (reactive from RxDB)
   const {
@@ -55,7 +60,11 @@ export function FollowingFeed({
     : validGroups.map(() => null);
 
   // Group details (extracted to hook)
-  const { groupDetails, isLoading: isLoadingDetails, error: groupsError } = useGroupDetails({
+  const {
+    groupDetails,
+    isLoading: isLoadingDetails,
+    error: groupsError,
+  } = useGroupDetails({
     groups: validGroups,
     distances,
     enabled: favorites && favorites.length > 0 && !isLoadingRxDBGroups,
@@ -76,7 +85,7 @@ export function FollowingFeed({
 
   const handleBack = () => {
     navigate("/");
-    setActiveTab("explore");
+    dispatch(setActiveTab("explore"));
   };
 
   // Error state: Network connectivity
@@ -103,7 +112,7 @@ export function FollowingFeed({
         showActionButton={true}
         actionButtonLabel="Đi đến Khám phá"
         onActionClick={() => {
-          setActiveTab("explore");
+          dispatch(setActiveTab("explore"));
         }}
       />
     );

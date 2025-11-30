@@ -4,8 +4,18 @@
  */
 
 import { useNavigate } from "react-router-dom";
-import { useNavigationStore, type TabType } from "@/stores/navigation-store";
-import { useAppStore } from "@/stores/app-store";
+import { useSelector, useDispatch } from "react-redux";
+import {
+  selectActiveTab,
+  setActiveTab,
+  navigateToChat,
+  type TabType,
+} from "@/store/slices/navigationSlice";
+import {
+  selectSelectedRadius,
+  setSelectedRadius,
+} from "@/store/slices/appSlice";
+import type { RootState } from "@/store";
 import { useSwipeGesture } from "@/hooks/useSwipeGesture";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 import { useUserStatus } from "@/hooks/useUserStatus";
@@ -24,21 +34,36 @@ const tabOrder: TabType[] = ["sos", "following", "explore", "status"];
 
 export function Home() {
   const navigate = useNavigate();
-  const { activeTab, navigateToChat, setActiveTab } = useNavigationStore();
-  const { selectedRadius, setSelectedRadius } = useAppStore();
+  const dispatch = useDispatch();
+  const activeTab = useSelector((state: RootState) => selectActiveTab(state));
+  const selectedRadius = useSelector((state: RootState) =>
+    selectSelectedRadius(state)
+  );
+
+  const handleSetActiveTab = (tab: TabType) => {
+    dispatch(setActiveTab(tab));
+  };
+
+  const handleSetSelectedRadius = (radius: 500 | 1000 | 2000) => {
+    dispatch(setSelectedRadius(radius));
+  };
+
+  const handleNavigateToChat = (groupId: string) => {
+    dispatch(navigateToChat(groupId));
+  };
 
   // Swipe gesture for tab switching
   const handleSwipeLeft = () => {
     const currentIndex = tabOrder.indexOf(activeTab);
     if (currentIndex < tabOrder.length - 1) {
-      setActiveTab(tabOrder[currentIndex + 1]);
+      handleSetActiveTab(tabOrder[currentIndex + 1]);
     }
   };
 
   const handleSwipeRight = () => {
     const currentIndex = tabOrder.indexOf(activeTab);
     if (currentIndex > 0) {
-      setActiveTab(tabOrder[currentIndex - 1]);
+      handleSetActiveTab(tabOrder[currentIndex - 1]);
     }
   };
 
@@ -54,7 +79,7 @@ export function Home() {
   useUserStatus();
 
   const handleGroupSelect = (groupId: string) => {
-    navigateToChat(groupId);
+    handleNavigateToChat(groupId);
     navigate(`/chat/${groupId}`);
   };
 
@@ -145,7 +170,7 @@ export function Home() {
       {activeTab === "explore" && (
         <RadiusFilterFAB
           selectedRadius={selectedRadius}
-          onRadiusChange={setSelectedRadius}
+          onRadiusChange={handleSetSelectedRadius}
         />
       )}
     </div>

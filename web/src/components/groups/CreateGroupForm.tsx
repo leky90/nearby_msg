@@ -14,6 +14,7 @@ import { getCurrentLocation } from "../../services/location-service";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
+import { log } from "../../lib/logging/logger";
 import {
   Select,
   SelectContent,
@@ -92,7 +93,7 @@ export function CreateGroupForm({
           await loadSuggestions(location.latitude, location.longitude);
         }
       } catch (err) {
-        console.error("Failed to get location:", err);
+        log.error("Failed to get location", err);
       } finally {
         setIsLoadingLocation(false);
       }
@@ -108,7 +109,7 @@ export function CreateGroupForm({
       setName(suggestion.suggested_name);
       setType(suggestion.suggested_type);
     } catch (err) {
-      console.error("Failed to load suggestions:", err);
+      log.error("Failed to load suggestions", err, { latitude, longitude });
     } finally {
       setIsLoadingSuggestion(false);
     }

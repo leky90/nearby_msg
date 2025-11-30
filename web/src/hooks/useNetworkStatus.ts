@@ -3,24 +3,25 @@
  */
 
 import { useEffect } from "react";
+import { useDispatch } from "react-redux";
 import {
     getNetworkStatus,
     subscribeToNetworkStatus,
 } from "@/services/network-status";
-import { useAppStore } from "@/stores/app-store";
+import { setNetworkStatus } from "@/store/slices/appSlice";
 
 /**
- * Hook to initialize and sync network status to store
+ * Hook to initialize and sync network status to Redux store
  */
 export function useNetworkStatus() {
-  const setNetworkStatus = useAppStore((state) => state.setNetworkStatus);
+  const dispatch = useDispatch();
 
   useEffect(() => {
-    setNetworkStatus(getNetworkStatus());
+    dispatch(setNetworkStatus(getNetworkStatus()));
     const unsubscribe = subscribeToNetworkStatus((newStatus) => {
-      setNetworkStatus(newStatus);
+      dispatch(setNetworkStatus(newStatus));
     });
     return unsubscribe;
-  }, [setNetworkStatus]);
+  }, [dispatch]);
 }
 

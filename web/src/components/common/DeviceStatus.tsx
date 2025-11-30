@@ -14,7 +14,9 @@ import {
 } from "lucide-react";
 import { Badge } from "../ui/badge";
 import { cn } from "@/lib/utils";
-import { useAppStore } from "@/stores/app-store";
+import { useSelector } from "react-redux";
+import { selectDeviceLocation } from "@/store/slices/appSlice";
+import type { RootState } from "@/store";
 import { copyCoordinates } from "@/utils/copy-coordinates";
 import {
   getBatteryStatus,
@@ -37,7 +39,9 @@ export function DeviceStatus({
   className = "",
   showLabels = true,
 }: DeviceStatusProps) {
-  const { deviceLocation } = useAppStore();
+  const deviceLocation = useSelector((state: RootState) =>
+    selectDeviceLocation(state)
+  );
   const [battery, setBattery] = useState<BatteryStatus | null>(null);
   const [copied, setCopied] = useState(false);
 

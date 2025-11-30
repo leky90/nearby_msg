@@ -14,6 +14,13 @@ type Pool struct {
 	*pgxpool.Pool
 }
 
+// DeletionInfo represents a deletion with ID and timestamp
+// Shared across all repositories to avoid duplication
+type DeletionInfo struct {
+	ID        string
+	DeletedAt time.Time
+}
+
 // NewPool creates a new PostgreSQL connection pool
 func NewPool(ctx context.Context) (*Pool, error) {
 	databaseURL := os.Getenv("DATABASE_URL")

@@ -46,13 +46,15 @@ func (r *FavoriteRepository) Create(ctx context.Context, favorite *domain.Favori
 	return nil
 }
 
-// Delete removes a favorite group record
+// Delete removes a favorite group record (soft delete)
 func (r *FavoriteRepository) Delete(ctx context.Context, deviceID, groupID string) error {
 	query := `
-		DELETE FROM favorite_groups
-		WHERE device_id = $1 AND group_id = $2
+		UPDATE favorite_groups
+		SET deleted_at = $1
+		WHERE device_id = $2 AND group_id = $3 AND deleted_at IS NULL
 	`
-	result, err := r.pool.Exec(ctx, query, deviceID, groupID)
+	now := time.Now()
+	result, err := r.pool.Exec(ctx, query, now, deviceID, groupID)
 	if err != nil {
 		return err
 	}
@@ -93,6 +95,33 @@ func (r *FavoriteRepository) GetByDeviceID(ctx context.Context, deviceID string)
 	return favorites, rows.Err()
 }
 
+// GetDeletionsAfter retrieves IDs and timestamps of favorites deleted after a given timestamp for a device
+func (r *FavoriteRepository) GetDeletionsAfter(ctx context.Context, deviceID string, since time.Time, limit int) ([]DeletionInfo, error) {
+	query := `
+		SELECT id, deleted_at
+		FROM favorite_groups
+		WHERE deleted_at > $1 AND deleted_at IS NOT NULL AND device_id = $2
+		ORDER BY deleted_at ASC
+		LIMIT $3
+	`
+	rows, err := r.pool.Query(ctx, query, since, deviceID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var deletions []DeletionInfo
+	for rows.Next() {
+		var del DeletionInfo
+		if err := rows.Scan(&del.ID, &del.DeletedAt); err != nil {
+			return nil, err
+		}
+		deletions = append(deletions, del)
+	}
+
+	return deletions, rows.Err()
+}
+
 // GetByDeviceAndGroup checks if a device has favorited a specific group
 func (r *FavoriteRepository) GetByDeviceAndGroup(ctx context.Context, deviceID, groupID string) (*domain.FavoriteGroup, error) {
 	query := `
@@ -118,11 +147,12 @@ func (r *FavoriteRepository) GetByDeviceAndGroup(ctx context.Context, deviceID, 
 }
 
 // GetFavoritesAfter retrieves favorite groups created after a given timestamp for a device
+// Excludes soft-deleted favorites (deleted_at IS NULL)
 func (r *FavoriteRepository) GetFavoritesAfter(ctx context.Context, deviceID string, since time.Time, limit int) ([]*domain.FavoriteGroup, error) {
 	query := `
 		SELECT id, device_id, group_id, created_at
 		FROM favorite_groups
-		WHERE device_id = $1 AND created_at > $2
+		WHERE deleted_at IS NULL AND device_id = $1 AND created_at > $2
 		ORDER BY created_at ASC
 		LIMIT $3
 	`

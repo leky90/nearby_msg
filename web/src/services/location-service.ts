@@ -3,6 +3,8 @@
  * Handles geolocation API and manual location entry
  */
 
+import { log } from '../lib/logging/logger';
+
 export interface Location {
   latitude: number;
   longitude: number;
@@ -42,7 +44,7 @@ export async function getCurrentLocation(): Promise<Location | null> {
       },
       (error) => {
         // Return null on error (degraded mode)
-        console.warn('Geolocation error:', error);
+        log.warn('Geolocation error', error);
         resolve(null);
       },
       options
@@ -79,7 +81,7 @@ export function watchLocation(
       });
     },
     (error) => {
-      console.warn('Geolocation watch error:', error);
+      log.warn('Geolocation watch error', error);
       callback(null);
     },
     options

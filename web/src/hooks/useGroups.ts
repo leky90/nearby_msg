@@ -5,8 +5,15 @@
  */
 
 import { useEffect, useState, useMemo } from 'react';
+import { useSelector } from 'react-redux';
 import type { Group } from '../domain/group';
 import { getDatabase } from '../services/db';
+import { log } from '../lib/logging/logger';
+import {
+    selectNearbyGroupsLoading,
+    selectGroupById
+} from '../store/slices/groupsSlice';
+import type { RootState } from '../store';
 
 export interface UseGroupsOptions {
   /** Group IDs to fetch */
@@ -32,6 +39,15 @@ export interface UseGroupsResult {
 export function useGroups({ groupIds, reactive = true }: UseGroupsOptions): UseGroupsResult {
   // Memoize groupIds string for dependency array
   const groupIdsKey = useMemo(() => groupIds.join(','), [groupIds]);
+  
+  // Redux selectors - get groups from Redux store
+  const reduxLoading = useSelector((state: RootState) => selectNearbyGroupsLoading(state));
+  
+  // Get groups from Redux byId
+  const reduxGroups = useSelector((state: RootState) => {
+    if (groupIds.length === 0) return [];
+    return groupIds.map((id) => selectGroupById(state, id) || null);
+  });
   
   // Initialize state based on empty groupIds
   const [groups, setGroups] = useState<(Group | null)[]>(() => 
@@ -109,7 +125,7 @@ export function useGroups({ groupIds, reactive = true }: UseGroupsOptions): UseG
         };
       } catch (err) {
         if (isMounted) {
-          console.error('Failed to setup reactive groups query:', err);
+          log.error('Failed to setup reactive groups query', err);
           setError(err instanceof Error ? err : new Error(String(err)));
           setIsLoading(false);
         }
@@ -127,9 +143,15 @@ export function useGroups({ groupIds, reactive = true }: UseGroupsOptions): UseG
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groupIdsKey, reactive]); // Re-run when groupIds change (groupIdsKey is memoized from groupIds)
 
+  // Use Redux groups if available, otherwise use local state
+  const finalGroups = reduxGroups.length > 0 && reduxGroups.some(g => g !== null) 
+    ? reduxGroups 
+    : groups;
+  const finalLoading = reduxLoading || isLoading;
+
   return {
-    groups,
-    isLoading,
+    groups: finalGroups,
+    isLoading: finalLoading,
     error,
   };
 }

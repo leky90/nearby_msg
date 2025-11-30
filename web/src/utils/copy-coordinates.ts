@@ -3,6 +3,7 @@
  */
 
 import { showToast } from "./toast";
+import { log } from "../lib/logging/logger";
 
 /**
  * Formats coordinates with maximum precision
@@ -34,7 +35,7 @@ export async function copyCoordinates(
     await navigator.clipboard.writeText(coordinates);
     showToast("Đã copy tọa độ!", "success");
   } catch (err) {
-    console.error("Failed to copy coordinates:", err);
+    log.error("Failed to copy coordinates", err, { latitude, longitude });
     showToast("Không thể copy tọa độ", "error");
   }
 }

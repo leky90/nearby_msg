@@ -4,7 +4,15 @@
  */
 
 import { useState, useEffect, memo } from "react";
-import { Pin, PinOff, Check, CheckCheck } from "lucide-react";
+import {
+  Pin,
+  PinOff,
+  Check,
+  CheckCheck,
+  Clock,
+  RefreshCw,
+  AlertCircle,
+} from "lucide-react";
 import { format, isToday, isYesterday } from "date-fns";
 import { vi } from "date-fns/locale";
 import type { Message } from "../../domain/message";
@@ -16,6 +24,7 @@ import type { Device } from "../../domain/device";
 import { calculateDistance } from "../../domain/group";
 import { formatDistance as formatDistanceUtil } from "../../utils/distance";
 import { getCurrentLocation } from "../../services/location-service";
+import { log } from "../../lib/logging/logger";
 
 export interface MessageBubbleProps {
   /** Message to display */
@@ -47,7 +56,7 @@ function formatMessageTime(timestamp: string): string {
 /**
  * Formats date for display using date-fns
  */
-function formatMessageDate(timestamp: string): string {
+export function formatMessageDate(timestamp: string): string {
   const date = new Date(timestamp);
 
   if (isToday(date)) {
@@ -102,10 +111,14 @@ export const MessageBubble = memo(
               .findOne(message.device_id)
               .exec();
             if (deviceDoc) {
-              setSenderDevice(deviceDoc.toJSON() as Device);
+              setTimeout(() => {
+                setSenderDevice(deviceDoc.toJSON() as Device);
+              }, 0);
             }
           } catch (err) {
-            console.error("Failed to load device:", err);
+            log.error("Failed to load device", err, {
+              deviceId: message.device_id,
+            });
           }
         };
         void loadDevice();
@@ -115,7 +128,7 @@ export const MessageBubble = memo(
     // Calculate distance from sender
     useEffect(() => {
       if (isOwn || !groupLocation) {
-        setDistance(null);
+        setTimeout(() => setDistance(null), 0);
         return;
       }
 
@@ -136,7 +149,7 @@ export const MessageBubble = memo(
                   groupLocation.latitude,
                   groupLocation.longitude
                 );
-                setDistance(dist);
+                setTimeout(() => setDistance(dist), 0);
               }
             }
             return;
@@ -149,14 +162,16 @@ export const MessageBubble = memo(
             groupLocation.latitude,
             groupLocation.longitude
           );
-          setDistance(dist);
+          setTimeout(() => setDistance(dist), 0);
         } catch (err) {
-          console.error("Failed to calculate distance:", err);
+          log.error("Failed to calculate distance", err, {
+            messageId: message.id,
+          });
         }
       };
 
       void calculateDistanceFromSender();
-    }, [isOwn, groupLocation]);
+    }, [isOwn, groupLocation, message.id]);
 
     // Check if message is pinned
     useEffect(() => {
@@ -164,9 +179,13 @@ export const MessageBubble = memo(
         const checkPinned = async () => {
           try {
             const pinnedStatus = await isPinned(message.id);
-            setPinned(pinnedStatus);
+            setTimeout(() => {
+              setPinned(pinnedStatus);
+            }, 0);
           } catch (err) {
-            console.error("Failed to check pin status:", err);
+            log.error("Failed to check pin status", err, {
+              messageId: message.id,
+            });
           }
         };
         void checkPinned();
@@ -191,7 +210,10 @@ export const MessageBubble = memo(
           setPinned(true);
         }
       } catch (err) {
-        console.error("Failed to toggle pin:", err);
+        log.error("Failed to toggle pin", err, {
+          messageId: message.id,
+          pinned,
+        });
       } finally {
         setIsPinning(false);
       }
@@ -268,7 +290,7 @@ export const MessageBubble = memo(
             {/* Timestamp and status */}
             <div
               className={cn(
-                "flex items-center gap-1 mt-1 text-xs",
+                "flex items-center gap-1.5 mt-1 text-xs",
                 isOwn
                   ? "text-primary-foreground/70 justify-end"
                   : "text-muted-foreground"
@@ -276,31 +298,50 @@ export const MessageBubble = memo(
             >
               <span>{formatMessageTime(message.created_at)}</span>
               {isOwn && (
-                <span className="ml-0.5">
+                <div className="flex items-center gap-0.5">
                   {message.sync_status === "synced" ? (
-                    <CheckCheck className="h-3 w-3" />
+                    <CheckCheck className="h-3 w-3 text-green-600" />
                   ) : message.sync_status === "syncing" ? (
-                    <Check className="h-3 w-3 opacity-50" />
+                    <RefreshCw className="h-3 w-3 text-blue-600 animate-spin" />
+                  ) : message.sync_status === "pending" ? (
+                    <Clock className="h-3 w-3 text-yellow-600" />
+                  ) : message.sync_status === "failed" ? (
+                    <AlertCircle className="h-3 w-3 text-red-600" />
                   ) : (
                     <Check className="h-3 w-3 opacity-30" />
                   )}
-                </span>
+                </div>
               )}
             </div>
 
-            {/* Sync status indicator */}
+            {/* Sync status text indicator */}
             {message.sync_status && message.sync_status !== "synced" && (
               <div
                 className={cn(
-                  "text-[10px] mt-0.5",
+                  "flex items-center gap-1 text-[10px] mt-0.5",
                   isOwn
-                    ? "text-primary-foreground/60"
+                    ? "text-primary-foreground/60 justify-end"
                     : "text-muted-foreground/70"
                 )}
               >
-                {message.sync_status === "pending" && "⏳ Đang chờ"}
-                {message.sync_status === "syncing" && "🔄 Đang đồng bộ"}
-                {message.sync_status === "failed" && "❌ Lỗi"}
+                {message.sync_status === "pending" && (
+                  <>
+                    <Clock className="h-2.5 w-2.5 text-yellow-600" />
+                    <span className="text-yellow-600">Đang chờ</span>
+                  </>
+                )}
+                {message.sync_status === "syncing" && (
+                  <>
+                    <RefreshCw className="h-2.5 w-2.5 text-blue-600 animate-spin" />
+                    <span className="text-blue-600">Đang đồng bộ</span>
+                  </>
+                )}
+                {message.sync_status === "failed" && (
+                  <>
+                    <AlertCircle className="h-2.5 w-2.5 text-red-600" />
+                    <span className="text-red-600">Lỗi đồng bộ</span>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -329,6 +370,3 @@ export const MessageBubble = memo(
     );
   }
 );
-
-// Export helper functions
-export { formatMessageTime, formatMessageDate };

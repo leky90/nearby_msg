@@ -4,12 +4,15 @@ import { createSOSMessage, checkSOSCooldown } from "@/services/message-service";
 import { getOrCreateDeviceId } from "@/services/device-storage";
 import { discoverNearbyGroups } from "@/services/group-service";
 import { getCurrentLocation } from "@/services/location-service";
-import { useAppStore } from "@/stores/app-store";
+import { useSelector, useDispatch } from "react-redux";
+import { selectDeviceLocation } from "@/store/slices/appSlice";
+import { setActiveTab } from "@/store/slices/navigationSlice";
+import type { RootState } from "@/store";
 import { cn } from "@/lib/utils";
 import type { SOSType } from "@/domain/message";
 import { showToast } from "@/utils/toast";
-import { useNavigationStore } from "@/stores/navigation-store";
 import { useSwipeGesture } from "@/hooks/useSwipeGesture";
+import { log } from "@/lib/logging/logger";
 
 const HOLD_DURATION = 3000; // 3 seconds
 
@@ -25,7 +28,10 @@ const quickActions: {
 ];
 
 export function SOSView() {
-  const { setActiveTab } = useNavigationStore();
+  const dispatch = useDispatch();
+  const deviceLocation = useSelector((state: RootState) =>
+    selectDeviceLocation(state)
+  );
   const [holdProgress, setHoldProgress] = useState(0);
   const [isHolding, setIsHolding] = useState(false);
   const [holdStartTime, setHoldStartTime] = useState<number | null>(null);
@@ -37,9 +43,9 @@ export function SOSView() {
   // Swipe down to go back
   const handleSwipeDown = useCallback(() => {
     if (!isSending) {
-      setActiveTab("explore");
+      dispatch(setActiveTab("explore"));
     }
-  }, [setActiveTab, isSending]);
+  }, [dispatch, isSending]);
 
   const swipeHandlers = useSwipeGesture({
     onSwipeDown: handleSwipeDown,
@@ -47,7 +53,7 @@ export function SOSView() {
     preventDefault: false,
   });
 
-  const { deviceLocation } = useAppStore();
+  // deviceLocation is already available from selector above
 
   useEffect(() => {
     // Find nearest group when view mounts
@@ -78,7 +84,7 @@ export function SOSView() {
           setError("Không thể lấy vị trí hiện tại. Vui lòng cài đặt vị trí.");
         }
       } catch (err) {
-        console.error("Failed to find nearest group:", err);
+        log.error("Failed to find nearest group", err);
         setError("Lỗi khi tìm nhóm gần nhất. Vui lòng thử lại.");
       }
     };
@@ -157,7 +163,7 @@ export function SOSView() {
         showToast("Đã gửi SOS thành công!", "success");
         setActiveTab("explore");
       } catch (err) {
-        console.error("Failed to send SOS:", err);
+        log.error("Failed to send SOS", err, { sosType: type });
         setError("Lỗi khi gửi SOS. Vui lòng thử lại.");
       } finally {
         setIsSending(false);

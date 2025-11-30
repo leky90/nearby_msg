@@ -124,7 +124,7 @@ func (r *MessageRepository) GetMessagesAfter(ctx context.Context, since time.Tim
 		SELECT id, group_id, device_id, content, message_type, sos_type,
 		       tags, pinned, created_at, device_sequence, synced_at
 		FROM messages
-		WHERE created_at > $1
+		WHERE deleted_at IS NULL AND created_at > $1
 		ORDER BY created_at ASC, id ASC
 		LIMIT $2
 	`
@@ -169,6 +169,37 @@ func (r *MessageRepository) GetMessagesAfter(ctx context.Context, since time.Tim
 	}
 
 	return messages, rows.Err()
+}
+
+// GetDeletionsAfter retrieves IDs and timestamps of messages deleted after a given timestamp
+func (r *MessageRepository) GetDeletionsAfter(ctx context.Context, since time.Time, limit int) ([]DeletionInfo, error) {
+	if limit <= 0 || limit > 500 {
+		limit = defaultMessageLimit
+	}
+
+	query := `
+		SELECT id, deleted_at
+		FROM messages
+		WHERE deleted_at > $1 AND deleted_at IS NOT NULL
+		ORDER BY deleted_at ASC, id ASC
+		LIMIT $2
+	`
+	rows, err := r.pool.Query(ctx, query, since, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var deletions []DeletionInfo
+	for rows.Next() {
+		var del DeletionInfo
+		if err := rows.Scan(&del.ID, &del.DeletedAt); err != nil {
+			return nil, err
+		}
+		deletions = append(deletions, del)
+	}
+
+	return deletions, rows.Err()
 }
 
 // TrimOldMessages keeps the most recent maxMessages per group.

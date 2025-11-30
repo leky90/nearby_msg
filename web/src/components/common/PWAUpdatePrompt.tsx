@@ -8,6 +8,7 @@ import { useEffect, useState, useRef } from "react";
 import { RefreshCw, X } from "lucide-react";
 import { Button } from "../ui/button";
 import { cn } from "@/lib/utils";
+import { log } from "@/lib/logging/logger";
 
 interface PWAUpdatePromptProps {
   className?: string;
@@ -89,7 +90,7 @@ export function PWAUpdatePrompt({ className }: PWAUpdatePromptProps) {
           setNeedRefresh(true);
         }
       } catch (err) {
-        console.error("Failed to check for updates:", err);
+        log.error("Failed to check for updates", err);
       }
     };
 
@@ -161,7 +162,7 @@ export function PWAUpdatePrompt({ className }: PWAUpdatePromptProps) {
         window.location.reload();
       }
     } catch (err) {
-      console.error("Failed to update:", err);
+      log.error("Failed to update", err);
       setIsUpdating(false);
       isReloadingRef.current = false;
       // Fallback: reload anyway

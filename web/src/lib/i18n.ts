@@ -271,6 +271,8 @@ export const translations = {
 
 export type TranslationKey = keyof typeof translations | string;
 
+import { log } from "./logging/logger";
+
 /**
  * Helper function to get nested translation value
  * @param key - Translation key path (e.g., "sos.medical" or "button.send")
@@ -279,19 +281,19 @@ export type TranslationKey = keyof typeof translations | string;
  */
 export function t(key: string, params?: Record<string, string | number>): string {
   const keys = key.split(".");
-  let value: any = translations;
+  let value: unknown = translations;
 
   for (const k of keys) {
     if (value && typeof value === "object" && k in value) {
       value = value[k as keyof typeof value];
     } else {
-      console.warn(`Translation key not found: ${key}`);
+      log.warn("Translation key not found", { key });
       return key;
     }
   }
 
   if (typeof value !== "string") {
-    console.warn(`Translation value is not a string: ${key}`);
+    log.warn("Translation value is not a string", { key });
     return key;
   }
 

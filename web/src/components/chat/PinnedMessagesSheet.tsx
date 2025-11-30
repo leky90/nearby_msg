@@ -8,12 +8,8 @@ import type { PinnedMessage } from "../../domain/pinned_message";
 import type { Message } from "../../domain/message";
 import { getPinnedMessages } from "../../services/pin-service";
 import { getDatabase } from "../../services/db";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "../ui/sheet";
+import { log } from "../../lib/logging/logger";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "../ui/sheet";
 import { ScrollArea } from "../ui/scroll-area";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
@@ -79,7 +75,7 @@ export function PinnedMessagesSheet({
         }
         setMessages(messagesMap);
       } catch (err) {
-        console.error("Failed to load pinned messages:", err);
+        log.error("Failed to load pinned messages", err, { groupId });
       } finally {
         setIsLoading(false);
       }
@@ -98,7 +94,10 @@ export function PinnedMessagesSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="left" className="w-[85%] sm:w-[400px] max-w-[90vw] p-0 flex flex-col">
+      <SheetContent
+        side="left"
+        className="w-[85%] sm:w-[400px] max-w-[90vw] p-0 flex flex-col"
+      >
         <SheetHeader className="border-b px-4 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -118,7 +117,7 @@ export function PinnedMessagesSheet({
             </Button>
           </div>
         </SheetHeader>
-        
+
         <ScrollArea className="flex-1">
           {isLoading ? (
             <div className="p-4 text-center text-sm text-muted-foreground">
@@ -126,7 +125,8 @@ export function PinnedMessagesSheet({
             </div>
           ) : pinnedMessages.length === 0 ? (
             <div className="p-4 text-center text-sm text-muted-foreground">
-              {t("component.pinnedMessages.noPinnedMessages") || "Chưa có tin nhắn nào được ghim"}
+              {t("component.pinnedMessages.noPinnedMessages") ||
+                "Chưa có tin nhắn nào được ghim"}
             </div>
           ) : (
             <div className="space-y-3 p-4">
@@ -144,7 +144,10 @@ export function PinnedMessagesSheet({
                 }
 
                 return (
-                  <div key={pin.id} className="rounded-lg border bg-card p-3 space-y-2">
+                  <div
+                    key={pin.id}
+                    className="rounded-lg border bg-card p-3 space-y-2"
+                  >
                     <div className="flex items-center justify-between">
                       {pin.tag && (
                         <Badge variant="secondary" className="text-xs">
@@ -152,7 +155,9 @@ export function PinnedMessagesSheet({
                         </Badge>
                       )}
                       <span className="text-[10px] text-muted-foreground">
-                        {format(new Date(pin.pinned_at), "dd/MM/yyyy HH:mm", { locale: vi })}
+                        {format(new Date(pin.pinned_at), "dd/MM/yyyy HH:mm", {
+                          locale: vi,
+                        })}
                       </span>
                     </div>
                     <div
@@ -199,4 +204,3 @@ export function PinnedMessagesSheet({
     </Sheet>
   );
 }
-

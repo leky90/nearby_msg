@@ -6,8 +6,17 @@
 
 import { useEffect, useState, useRef, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useSelector, useDispatch } from 'react-redux';
 import type { Message } from '../domain/message';
 import { watchGroupMessages, getDatabase } from '../services/db';
+import { log } from '../lib/logging/logger';
+import {
+    selectMessagesByGroupId,
+    selectMessagesLoading,
+    selectMessagesError,
+} from '../store/slices/messagesSlice';
+import { syncMessagesAction } from '../store/sagas/messageSaga';
+import type { RootState } from '../store';
 
 export interface UseMessagesOptions {
   /** Group ID to filter messages */
@@ -84,9 +93,21 @@ export function useMessages({
   limit = 1000,
   reactive = true,
 }: UseMessagesOptions): UseMessagesResult {
+  const dispatch = useDispatch();
   const [messages, setMessages] = useState<Message[]>([]);
   const messagesRef = useRef<Message[]>([]);
   const updateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Redux selectors
+  const reduxMessages = useSelector((state: RootState) =>
+    selectMessagesByGroupId(state, groupId)
+  );
+  const reduxLoading = useSelector((state: RootState) =>
+    selectMessagesLoading(state, groupId)
+  );
+  const reduxError = useSelector((state: RootState) =>
+    selectMessagesError(state, groupId)
+  );
 
   // Use TanStack Query for initial load and caching
   const {
@@ -94,7 +115,7 @@ export function useMessages({
     isLoading: queryLoading,
     error: queryError,
     refetch: refresh,
-  } = useQuery({
+  } = useQuery<Message[]>({
     queryKey: ['messages', groupId, limit],
     queryFn: () => fetchMessages(groupId, limit),
     enabled: !!groupId,
@@ -140,7 +161,7 @@ export function useMessages({
           }, 50); // 50ms debounce - short enough to feel instant, long enough to batch updates
         });
       } catch (err) {
-        console.error('Failed to setup reactive query:', err);
+        log.error('Failed to setup reactive query', err, { groupId });
       }
     };
 
@@ -156,15 +177,38 @@ export function useMessages({
     };
   }, [groupId, limit, reactive]);
 
+  // Use Redux messages if available, otherwise use local state
+  const finalMessages = reduxMessages.length > 0 ? reduxMessages : messages;
+  
+  // Sync RxDB updates to Redux
+  useEffect(() => {
+    if (initialMessages && initialMessages.length > 0) {
+      dispatch({ type: 'messages/setMessages', payload: { groupId, messages: initialMessages } });
+    }
+  }, [initialMessages, groupId, dispatch]);
+
   // Memoize messages to prevent unnecessary re-renders
-  // The messages state is already optimized with deep comparison, but this adds an extra layer
-  const memoizedMessages = useMemo(() => messages, [messages]);
+  const memoizedMessages = useMemo(() => finalMessages, [finalMessages]);
+
+  // Determine loading state (Redux or query)
+  const isLoading = reduxLoading || queryLoading;
+  
+  // Determine error state (Redux or query)
+  const error: Error | null =
+    reduxError
+      ? new Error(reduxError)
+      : queryError instanceof Error
+        ? queryError
+        : queryError
+          ? new Error(String(queryError))
+          : null;
 
   return {
     messages: memoizedMessages,
-    isLoading: queryLoading,
-    error: queryError instanceof Error ? queryError : queryError ? new Error(String(queryError)) : null,
+    isLoading,
+    error,
     refresh: async () => {
+      dispatch(syncMessagesAction(groupId));
       await refresh();
     },
   };
