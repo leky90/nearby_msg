@@ -15,7 +15,8 @@
     "utils": "@/lib/utils",
     "ui": "@/components/ui",
     "lib": "@/lib",
-    "hooks": "@/hooks"
+    "hooks": "@/hooks",
+    "ai-elements": "@/components/ai-elements"
   },
   "registries": {
     "@taki": "https://taki-ui.com/r/{name}.json"

@@ -4,7 +4,6 @@
  */
 
 import { useState, useEffect } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { createGroup, getDeviceCreatedGroup } from "@/services/group-service";
 import { Input } from "@/components/ui/input";
@@ -21,8 +20,9 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { LocationInput } from "@/components/common/LocationInput";
 import { useLocationInput } from "@/hooks/useLocationInput";
-import { useSelector } from "react-redux";
+import { useSelector, useDispatch } from "react-redux";
 import { selectDeviceLocation } from "@/store/slices/appSlice";
+import { createGroupAction } from "@/store/sagas/groupSaga";
 import type { RootState } from "@/store";
 import { showToast } from "@/utils/toast";
 import { t } from "@/lib/i18n";
@@ -54,14 +54,15 @@ export function CreateGroupView({
   onGroupCreated,
   onCancel,
 }: CreateGroupViewProps) {
+  const dispatch = useDispatch();
   const deviceLocation = useSelector((state: RootState) =>
     selectDeviceLocation(state)
   );
-  const queryClient = useQueryClient();
   const [name, setName] = useState("");
   const [type, setType] = useState<Group["type"]>("village");
   const [error, setError] = useState<string | null>(null);
   const [hasGroup, setHasGroup] = useState<boolean | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
   const GROUP_TYPES = getGroupTypes();
 
   // Check if device already has a group on mount
@@ -123,47 +124,6 @@ export function CreateGroupView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const createGroupMutation = useMutation({
-    mutationFn: async (groupData: {
-      name: string;
-      type: Group["type"];
-      latitude: number;
-      longitude: number;
-    }) => {
-      return createGroup(groupData);
-    },
-    onSuccess: (group) => {
-      // Invalidate groups queries to refresh feeds
-      queryClient.invalidateQueries({ queryKey: ["nearby-groups"] });
-      queryClient.invalidateQueries({ queryKey: ["favorite-groups"] });
-      // Show success message (works for both online and offline)
-      showToast("Đã tạo nhóm khu vực thành công!", "success");
-      onGroupCreated(group);
-    },
-    onError: (err) => {
-      const errorMessage =
-        err instanceof Error ? err.message : "Không thể tạo nhóm";
-      if (
-        errorMessage.includes("already created") ||
-        errorMessage.includes("409")
-      ) {
-        setError(
-          "Bạn đã tạo nhóm khu vực. Mỗi thiết bị chỉ có thể tạo một nhóm."
-        );
-      } else {
-        setError(errorMessage);
-      }
-      // Only show error toast if it's a real error (not offline queuing)
-      // Offline mutations are queued silently and will sync when online
-      if (
-        !errorMessage.includes("network") &&
-        !errorMessage.includes("fetch")
-      ) {
-        showToast(errorMessage, "error");
-      }
-    },
-  });
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -184,12 +144,56 @@ export function CreateGroupView({
       return;
     }
 
-    createGroupMutation.mutate({
-      name: trimmed,
-      type,
-      latitude: locationInput.location.latitude,
-      longitude: locationInput.location.longitude,
-    });
+    setIsCreating(true);
+    try {
+      // Create group using service (handles offline queuing)
+      const group = await createGroup({
+        name: trimmed,
+        type,
+        latitude: locationInput.location.latitude,
+        longitude: locationInput.location.longitude,
+      });
+
+      // Dispatch Redux action to update state
+      dispatch(
+        createGroupAction({
+          name: trimmed,
+          type,
+          latitude: locationInput.location.latitude,
+          longitude: locationInput.location.longitude,
+        })
+      );
+
+      // Refresh nearby groups if we have last fetch params
+      // This will be handled by the component that uses nearby groups
+
+      // Show success message
+      showToast("Đã tạo nhóm khu vực thành công!", "success");
+      onGroupCreated(group);
+    } catch (err) {
+      const errorMessage =
+        err instanceof Error ? err.message : "Không thể tạo nhóm";
+      if (
+        errorMessage.includes("already created") ||
+        errorMessage.includes("409")
+      ) {
+        setError(
+          "Bạn đã tạo nhóm khu vực. Mỗi thiết bị chỉ có thể tạo một nhóm."
+        );
+      } else {
+        setError(errorMessage);
+      }
+      // Only show error toast if it's a real error (not offline queuing)
+      // Offline mutations are queued silently and will sync when online
+      if (
+        !errorMessage.includes("network") &&
+        !errorMessage.includes("fetch")
+      ) {
+        showToast(errorMessage, "error");
+      }
+    } finally {
+      setIsCreating(false);
+    }
   };
 
   return (
@@ -232,7 +236,7 @@ export function CreateGroupView({
           <LocationInput
             locationInput={locationInput}
             showInstructions={false}
-            disabled={createGroupMutation.isPending || hasGroup === true}
+            disabled={isCreating || hasGroup === true}
           />
 
           {/* Group Type */}
@@ -243,7 +247,7 @@ export function CreateGroupView({
               onValueChange={(value) => setType(value as Group["type"])}
               disabled={
                 locationInput.isLoadingLocation ||
-                createGroupMutation.isPending ||
+                isCreating ||
                 hasGroup === true
               }
             >
@@ -275,7 +279,7 @@ export function CreateGroupView({
               autoFocus={!locationInput.showManualInput}
               disabled={
                 locationInput.isLoadingLocation ||
-                createGroupMutation.isPending ||
+                isCreating ||
                 hasGroup === true
               }
               className={cn(error && "border-destructive")}
@@ -291,7 +295,7 @@ export function CreateGroupView({
             <Button
               variant="outline"
               onPress={onCancel}
-              isDisabled={createGroupMutation.isPending || hasGroup === true}
+              isDisabled={isCreating || hasGroup === true}
               className="flex-1"
             >
               {hasGroup === true ? "Đóng" : "Hủy"}
@@ -300,14 +304,14 @@ export function CreateGroupView({
               type="submit"
               disabled={
                 locationInput.isLoadingLocation ||
-                createGroupMutation.isPending ||
+                isCreating ||
                 !name.trim() ||
                 !locationInput.location ||
                 hasGroup === true
               }
               className="flex-1 h-12 inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all cursor-default outline-none border border-transparent bg-primary text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50"
             >
-              {createGroupMutation.isPending ? (
+              {isCreating ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
                   Đang tạo...

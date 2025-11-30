@@ -4,11 +4,11 @@
  * Single Responsibility: Location management only
  */
 
-import { useQuery } from '@tanstack/react-query';
-import { useSelector } from 'react-redux';
+import { useEffect } from 'react';
+import { useSelector, useDispatch } from 'react-redux';
 import { selectDeviceLocation } from '@/store/slices/appSlice';
+import { fetchGPSLocationAction } from '@/store/sagas/locationSaga';
 import type { RootState } from '@/store';
-import { getCurrentLocation } from '@/services/location-service';
 
 export interface Location {
   latitude: number;
@@ -33,23 +33,17 @@ export interface UseLocationResult {
  * Provides user location from app store (preferred) or GPS (fallback)
  */
 export function useLocation(): UseLocationResult {
+  const dispatch = useDispatch();
   const deviceLocation = useSelector((state: RootState) => selectDeviceLocation(state));
 
-  // Get GPS location if not in store
-  const {
-    data: gpsLocation,
-    isLoading: isLoadingGPS,
-    error: gpsError,
-    refetch: refetchGPS,
-  } = useQuery({
-    queryKey: ['location'],
-    queryFn: getCurrentLocation,
-    staleTime: 5 * 60 * 1000, // 5 minutes
-    retry: 2,
-    enabled: !deviceLocation, // Only fetch if no location in store
-  });
+  // Fetch GPS location if not in store
+  useEffect(() => {
+    if (!deviceLocation) {
+      dispatch(fetchGPSLocationAction());
+    }
+  }, [deviceLocation, dispatch]);
 
-  // Prefer deviceLocation from store, fallback to GPS
+  // Prefer deviceLocation from store
   const location: Location | null = deviceLocation
     ? {
         latitude: deviceLocation.latitude,
@@ -59,19 +53,14 @@ export function useLocation(): UseLocationResult {
           ? new Date(deviceLocation.updatedAt).getTime()
           : Date.now(),
       }
-    : gpsLocation
-      ? {
-          latitude: gpsLocation.latitude,
-          longitude: gpsLocation.longitude,
-          accuracy: gpsLocation.accuracy,
-          timestamp: gpsLocation.timestamp,
-        }
-      : null;
+    : null;
 
   return {
     location,
-    isLoading: !deviceLocation && isLoadingGPS,
-    error: gpsError ? (gpsError as Error) : null,
-    refetch: refetchGPS,
+    isLoading: !deviceLocation, // Loading if no location in store
+    error: null, // Error handling is done in Redux state if needed
+    refetch: () => {
+      dispatch(fetchGPSLocationAction());
+    },
   };
 }

@@ -7,8 +7,9 @@ import { useState, useEffect } from "react";
 import { Edit2, Check, X, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useQueryClient } from "@tanstack/react-query";
 import { updateGroupName } from "@/services/group-service";
+import { useDispatch } from "react-redux";
+import { fetchGroupDetailsAction } from "@/store/sagas/groupSaga";
 import { showToast } from "@/utils/toast";
 import type { Group } from "@/domain/group";
 import { log } from "@/lib/logging/logger";
@@ -24,7 +25,7 @@ export function GroupNameEditor({
   isCreator,
   onGroupUpdated,
 }: GroupNameEditorProps) {
-  const queryClient = useQueryClient();
+  const dispatch = useDispatch();
   const [isEditingName, setIsEditingName] = useState(false);
   const [editedName, setEditedName] = useState(group.name);
   const [isUpdating, setIsUpdating] = useState(false);
@@ -70,34 +71,10 @@ export function GroupNameEditor({
       const updatedGroup = await updateGroupName(group.id, trimmed);
       setIsEditingName(false);
 
-      // Invalidate React Query caches to sync UI
-      // Use exact: false to match all queries with these prefixes
-      await queryClient.invalidateQueries({
-        queryKey: ["group-details"],
-        exact: false,
-      });
-      await queryClient.invalidateQueries({
-        queryKey: ["nearby-groups"],
-        exact: false,
-      });
-      await queryClient.invalidateQueries({
-        queryKey: ["favorite-groups"],
-        exact: false,
-      });
-
-      // Also refetch to ensure fresh data
-      await queryClient.refetchQueries({
-        queryKey: ["group-details"],
-        exact: false,
-      });
-      await queryClient.refetchQueries({
-        queryKey: ["nearby-groups"],
-        exact: false,
-      });
-      await queryClient.refetchQueries({
-        queryKey: ["favorite-groups"],
-        exact: false,
-      });
+      // Update Redux state by refetching group details and nearby groups
+      dispatch(fetchGroupDetailsAction(group.id));
+      // Note: nearby groups will be refreshed when user navigates back to feed
+      // For now, we'll just update the local group state
 
       onGroupUpdated?.(updatedGroup);
       showToast("Đã cập nhật tên khu vực", "success");

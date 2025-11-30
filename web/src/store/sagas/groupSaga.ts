@@ -107,9 +107,10 @@ function* handleFetchGroupDetails(action: { type: string; payload: string }) {
     yield put(setGroupLoading({ groupId, loading: true }));
     yield put(setGroupError({ groupId, error: null }));
     
-    // Group details are typically loaded from RxDB via replication
-    // This saga can be extended if direct API fetch is needed
-    // For now, groups are synced via replication
+    // Group details (latest message, unread count, etc.) are computed from RxDB
+    // This saga can trigger a refetch of group data if needed
+    // For now, group details are computed on-demand in components/hooks from RxDB
+    // Groups themselves are synced via replication
     
     yield put(setGroupLoading({ groupId, loading: false }));
   } catch (error) {
@@ -120,6 +121,7 @@ function* handleFetchGroupDetails(action: { type: string; payload: string }) {
         error: error instanceof Error ? error.message : 'Failed to fetch group details',
       })
     );
+    yield put(setGroupLoading({ groupId, loading: false }));
   }
 }
 
