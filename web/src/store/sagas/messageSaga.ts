@@ -1,7 +1,8 @@
-import { call, put, takeEvery, select, take } from 'redux-saga/effects';
+import { call, put, takeEvery, select, take, fork, cancel, cancelled } from 'redux-saga/effects';
+import { eventChannel, type EventChannel, type Task } from 'redux-saga';
 import type { Message, MessageCreateRequest } from '@/domain/message';
 import { createMessage } from '@/services/message-service';
-import { getDatabase } from '@/services/db';
+import { getDatabase, watchGroupMessages } from '@/services/db';
 import {
   addMessage,
   setMessagesLoading,
@@ -9,6 +10,7 @@ import {
   markMessageReceived,
   queuePendingMessage,
   removePendingMessage,
+  setMessages,
 } from '../slices/messagesSlice';
 import { selectIsWebSocketConnected } from '../slices/websocketSlice';
 import { sendWebSocketMessageAction } from './websocketSaga';
@@ -18,6 +20,8 @@ import { log } from '@/lib/logging/logger';
 const SEND_MESSAGE = 'messages/sendMessage';
 const RECEIVE_MESSAGE = 'messages/receiveMessage';
 const SYNC_MESSAGES = 'messages/syncMessages';
+const START_MESSAGE_SUBSCRIPTION = 'messages/startSubscription';
+const STOP_MESSAGE_SUBSCRIPTION = 'messages/stopSubscription';
 
 // Action creators
 export const sendMessageAction = (request: MessageCreateRequest) => ({
@@ -31,6 +35,14 @@ export const receiveMessageAction = (message: Message) => ({
 export const syncMessagesAction = (groupId: string) => ({
   type: SYNC_MESSAGES,
   payload: groupId,
+});
+export const startMessageSubscriptionAction = (groupId: string, limit?: number) => ({
+  type: START_MESSAGE_SUBSCRIPTION,
+  payload: { groupId, limit },
+});
+export const stopMessageSubscriptionAction = (groupId: string) => ({
+  type: STOP_MESSAGE_SUBSCRIPTION,
+  payload: { groupId },
 });
 
 // Sagas
@@ -247,10 +259,116 @@ function* watchWebSocketReconnectionForQueuedMessages(): Generator<unknown, void
   }
 }
 
+// Track active subscriptions (task references)
+const activeSubscriptions = new Map<string, Task>();
+
+/**
+ * Watch for message subscription requests
+ */
+function* watchStartMessageSubscription() {
+  yield takeEvery(START_MESSAGE_SUBSCRIPTION, handleStartMessageSubscription);
+}
+
+function* handleStartMessageSubscription(action: { type: string; payload: { groupId: string; limit?: number } }) {
+  const { groupId, limit } = action.payload;
+  
+  // Cancel existing subscription if any
+  const existingTask = activeSubscriptions.get(groupId);
+  if (existingTask) {
+    yield cancel(existingTask);
+  }
+  
+  // Start new subscription
+  const task: Task = yield fork(watchGroupMessagesSubscription, groupId, limit);
+  activeSubscriptions.set(groupId, task);
+}
+
+/**
+ * Watch for message subscription stop requests
+ */
+function* watchStopMessageSubscription() {
+  yield takeEvery(STOP_MESSAGE_SUBSCRIPTION, handleStopMessageSubscription);
+}
+
+function* handleStopMessageSubscription(action: { type: string; payload: { groupId: string } }) {
+  const { groupId } = action.payload;
+  const task = activeSubscriptions.get(groupId);
+  if (task) {
+    yield cancel(task);
+    activeSubscriptions.delete(groupId);
+  }
+}
+
+/**
+ * Watch RxDB messages for a group and update Redux state
+ */
+function* watchGroupMessagesSubscription(groupId: string, limit?: number) {
+  try {
+    // Create event channel for RxDB subscription
+    const channel: EventChannel<Message[]> = yield call(createMessageEventChannel, groupId, limit);
+    
+    try {
+      while (true) {
+        const messages: Message[] = yield take(channel);
+        // Update Redux state with messages (no debouncing - saga handles efficiently)
+        yield put(setMessages({ groupId, messages }));
+      }
+    } finally {
+      const isCancelled: boolean = (yield cancelled()) as unknown as boolean;
+      if (isCancelled) {
+        channel.close();
+      }
+    }
+  } catch (error) {
+    log.error('Failed to setup message subscription', error, { groupId });
+  }
+}
+
+/**
+ * Create an event channel for RxDB message subscription
+ */
+function createMessageEventChannel(groupId: string, limit?: number): EventChannel<Message[]> {
+  return eventChannel<Message[]>((emit) => {
+    let unsubscribe: (() => void) | null = null;
+    let isActive = true;
+    
+    // Setup RxDB subscription asynchronously
+    watchGroupMessages(groupId, (messageArray: Message[]) => {
+      if (!isActive) return;
+      
+      // Apply limit if specified
+      const limitedMessages = limit ? messageArray.slice(-limit) : messageArray;
+      emit(limitedMessages);
+    }).then((unsub) => {
+      if (isActive) {
+        unsubscribe = unsub;
+      } else if (unsub) {
+        // If channel was closed before subscription was ready, cleanup immediately
+        unsub();
+      }
+    }).catch((err) => {
+      log.error('Failed to create message subscription', err, { groupId });
+      if (isActive) {
+        emit([]); // Emit empty array on error
+      }
+    });
+    
+    // Return cleanup function
+    return () => {
+      isActive = false;
+      if (unsubscribe) {
+        unsubscribe();
+      }
+    };
+  });
+}
+
 // Root saga
 export function* messageSaga() {
   yield watchSendMessage();
   yield watchReceiveMessage();
   yield watchSyncMessages();
+  yield watchStartMessageSubscription();
+  yield watchStopMessageSubscription();
   yield watchWebSocketReconnectionForQueuedMessages();
 }

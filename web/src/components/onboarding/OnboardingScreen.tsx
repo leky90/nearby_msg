@@ -22,6 +22,12 @@ import {
   selectDeviceLocation,
   setGPSStatus,
 } from "@/store/slices/appSlice";
+import {
+  selectDevice,
+  selectJWTToken,
+  selectDeviceLoading,
+  selectDeviceError,
+} from "@/store/slices/deviceSlice";
 import type { RootState } from "@/store";
 import { NetworkBanner } from "@/components/common/NetworkBanner";
 import { log } from "@/lib/logging/logger";
@@ -33,19 +39,68 @@ interface OnboardingScreenProps {
 }
 
 export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
-  const { registerDevice, loading } = useDevice(false); // Don't fetch device during onboarding
+  const { registerDevice } = useDevice(false); // Don't fetch device during onboarding
   const [nickname, setNickname] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [registrationInitiated, setRegistrationInitiated] = useState(false);
   const dispatch = useDispatch();
   const gpsStatus = useSelector((state: RootState) => selectGPSStatus(state));
   const deviceLocation = useSelector((state: RootState) =>
     selectDeviceLocation(state)
   );
 
+  // Use Redux selectors to watch for registration completion
+  const device = useSelector((state: RootState) => selectDevice(state));
+  const token = useSelector((state: RootState) => selectJWTToken(state));
+  const deviceLoading = useSelector((state: RootState) =>
+    selectDeviceLoading(state)
+  );
+  const deviceError = useSelector((state: RootState) =>
+    selectDeviceError(state)
+  );
+
   const locationInput = useLocationInput({
     saveToStorage: true,
     storageKey: "device_location",
   });
+
+  // Watch for registration completion after it's initiated
+  useEffect(() => {
+    if (!registrationInitiated) {
+      return;
+    }
+
+    // Check for errors (excluding RxDB internal errors)
+    if (
+      deviceError &&
+      !deviceError.includes("RxDB") &&
+      !deviceError.includes("DB8")
+    ) {
+      setError(deviceError);
+      showToast(deviceError, "error");
+      setRegistrationInitiated(false);
+      return;
+    }
+
+    // Check if registration completed successfully
+    if (device?.nickname && token && !deviceLoading) {
+      log.info("Registration completed successfully", {
+        deviceId: device.id,
+        hasToken: !!token,
+      });
+      showToast("Chào mừng bạn đến với Nearby Community Chat!", "success");
+      setRegistrationInitiated(false);
+      // Call onComplete - appSaga will handle service startup
+      onComplete();
+    }
+  }, [
+    device,
+    token,
+    deviceLoading,
+    deviceError,
+    registrationInitiated,
+    onComplete,
+  ]);
 
   // Check GPS status on mount
   useEffect(() => {
@@ -69,8 +124,9 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
 
       if (status === "granted") {
         // Try to get location if permission is granted
+        // Pass false to prevent duplicate toast (user will see toast when they click button)
         try {
-          await locationInput.handleRequestGPS();
+          await locationInput.handleRequestGPS(false);
         } catch (err) {
           log.error("Failed to get location", err);
         }
@@ -120,12 +176,13 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
     }
 
     try {
-      await registerDevice({ nickname: trimmed });
-      showToast("Chào mừng bạn đến với Nearby Community Chat!", "success");
-      // Wait a bit for device to be saved to RxDB and token to be set
-      setTimeout(() => {
-        onComplete();
-      }, 100);
+      // Dispatch registration action - saga will handle the rest
+      registerDevice({ nickname: trimmed });
+      setRegistrationInitiated(true);
+      setError(null);
+
+      // Registration completion will be handled by useEffect watching Redux state
+      // No need to poll or wait here - useEffect will call onComplete when ready
     } catch (err) {
       // Filter out internal RxDB errors from user-facing messages
       let message = "Lỗi khi đăng ký. Vui lòng thử lại.";
@@ -146,6 +203,7 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
       setError(message);
       showToast(message, "error");
       log.error("Device registration error", err);
+      setRegistrationInitiated(false);
     }
   };
 
@@ -196,7 +254,7 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
                 placeholder="Nhập tên của bạn"
                 maxLength={50}
                 autoFocus
-                disabled={loading}
+                disabled={deviceLoading || registrationInitiated}
                 className={cn(error && "border-destructive")}
               />
               {error && <p className="text-sm text-destructive">{error}</p>}
@@ -243,7 +301,11 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
                       type="button"
                       variant="default"
                       onClick={handleRequestGPSPermission}
-                      isDisabled={locationInput.isLoadingLocation || loading}
+                      isDisabled={
+                        locationInput.isLoadingLocation ||
+                        deviceLoading ||
+                        registrationInitiated
+                      }
                       className="w-full"
                     >
                       {locationInput.isLoadingLocation ? (
@@ -266,7 +328,7 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
               <LocationInput
                 locationInput={locationInput}
                 showInstructions={true}
-                disabled={loading}
+                disabled={deviceLoading || registrationInitiated}
               />
 
               {/* Error message if location is missing */}
@@ -280,9 +342,14 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
             <button
               type="submit"
               className="w-full h-12 inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all cursor-default outline-none border border-transparent bg-primary text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50"
-              disabled={loading || !nickname.trim() || !locationInput.location}
+              disabled={
+                deviceLoading ||
+                !nickname.trim() ||
+                !locationInput.location ||
+                registrationInitiated
+              }
             >
-              {loading ? (
+              {deviceLoading || registrationInitiated ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
                   Đang xử lý...

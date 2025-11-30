@@ -10,6 +10,7 @@ React PWA frontend for the Nearby Community Chat application.
 ## Setup
 
 1. Install dependencies:
+
    ```bash
    npm install
    # or
@@ -19,10 +20,11 @@ React PWA frontend for the Nearby Community Chat application.
    ```
 
 2. Copy `.env.local.example` to `.env.local` and configure (optional):
+
    ```bash
    cp .env.local.example .env.local
    ```
-   
+
    **Note:** In development, the API proxy is automatically configured. You only need to set `VITE_API_URL` if you want to use a different backend URL.
 
 3. Start development server:
@@ -44,11 +46,13 @@ The Vite dev server is configured to proxy API requests to the backend:
 - **Alternative:** `/v1` → `http://localhost:8080/v1`
 
 This means:
+
 - Frontend requests to `/api/device/register` are proxied to `http://localhost:8080/v1/device/register`
 - No CORS issues in development
 - No need to configure `VITE_API_URL` in development (unless using a different backend URL)
 
 **To use a different backend URL**, set `VITE_API_URL` in `.env.local`:
+
 ```bash
 VITE_API_URL=http://localhost:3000/v1
 ```
@@ -66,11 +70,40 @@ web/
 │   │   └── chat/        # Chat components
 │   ├── hooks/           # Custom React hooks
 │   ├── services/        # Data services (RxDB, API clients)
+│   ├── store/           # Redux store configuration
+│   │   ├── slices/      # Redux slices (state management)
+│   │   └── sagas/       # Redux sagas (side effects)
 │   └── pages/           # Page components
 ├── public/              # Static assets
 ├── tests/               # Test files
 └── vite.config.ts       # Vite configuration
 ```
+
+## State Management
+
+This application uses **Redux Toolkit** with **Redux Saga** for state management:
+
+- **Redux Toolkit**: Centralized state management with feature-based slices
+- **Redux Saga**: Handles asynchronous operations, API calls, and WebSocket interactions
+- **Redux Persist**: Persists selected state slices to localStorage
+- **React-Redux**: Hooks (`useSelector`, `useDispatch`) for React integration
+
+### Store Structure
+
+- **Slices**: Feature-based state slices (`appSlice`, `deviceSlice`, `groupsSlice`, `messagesSlice`, `websocketSlice`, `navigationSlice`)
+- **Sagas**: Side effect handlers (`deviceSaga`, `groupSaga`, `messageSaga`, `statusSaga`, `websocketSaga`)
+- **Selectors**: Optimized selectors using `createSelector` for memoization
+
+### WebSocket Integration
+
+Real-time messaging is handled via WebSocket:
+
+- **Connection Management**: Automatic connection, reconnection with exponential backoff
+- **Message Delivery**: WebSocket for real-time, REST API fallback for offline
+- **Synchronization**: Messages synced between WebSocket and REST API without duplicates
+- **Status Indicator**: WebSocket connection status shown in navigation bar
+
+See [Redux Migration Guide](../specs/001-redux-websocket-refactor/quickstart.md) for detailed implementation.
 
 ## Development
 
@@ -89,6 +122,7 @@ web/
 ## PWA Features
 
 This app is a Progressive Web App (PWA) with:
+
 - Offline support via Service Worker
 - Installable on mobile devices
 - Background sync for pending messages
@@ -112,6 +146,7 @@ VITE_APP_NAME=Nearby Community Chat
 ### Production Build
 
 1. **Build the application:**
+
    ```bash
    pnpm build
    # or
@@ -164,6 +199,7 @@ The built application is a static PWA that can be deployed to any static hosting
 ### PWA Configuration
 
 The app is configured as a PWA with:
+
 - **Service Worker:** Automatically registered for offline support
 - **Manifest:** `public/manifest.json` (update with your app details)
 - **Icons:** Place `pwa-192x192.png` and `pwa-512x512.png` in `public/`
@@ -181,6 +217,7 @@ Vite automatically loads the appropriate file based on the mode.
 ### Build Optimization
 
 The production build includes:
+
 - Code minification
 - Tree shaking
 - Asset optimization
@@ -197,16 +234,19 @@ The production build includes:
 ### Troubleshooting
 
 **Build fails:**
+
 - Check Node.js version (18.x or higher)
 - Clear `node_modules` and reinstall: `rm -rf node_modules && pnpm install`
 - Check for TypeScript errors: `pnpm type-check`
 
 **PWA not working:**
+
 - Ensure HTTPS (required for Service Workers)
 - Check browser console for Service Worker errors
 - Verify `manifest.json` is accessible
 
 **API connection issues:**
+
 - Verify `VITE_API_URL` is set correctly
 - Check CORS settings on API server
 - Verify API server is running and accessible

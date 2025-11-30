@@ -113,7 +113,7 @@ export function LocationInput({
             <div className="flex gap-2">
               <Button
                 type="button"
-                onPress={handleRequestGPS}
+                onPress={() => void handleRequestGPS()}
                 isDisabled={isLoadingLocation || disabled}
                 variant="outline"
                 className="flex-1"

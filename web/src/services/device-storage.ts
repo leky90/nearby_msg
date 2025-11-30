@@ -84,3 +84,19 @@ export function getOrCreateDeviceId(): string {
   return deviceId;
 }
 
+/**
+ * Gets the stored JWT token
+ * @returns JWT token or null
+ */
+export function getToken(): string | null {
+  return localStorage.getItem('jwt_token');
+}
+
+/**
+ * Sets the JWT token
+ * @param token - JWT token to store
+ */
+export function setToken(token: string): void {
+  localStorage.setItem('jwt_token', token);
+}
+

@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, memo } from "react";
+import { useSelector } from "react-redux";
 import {
   Pin,
   PinOff,
@@ -24,7 +25,9 @@ import type { Device } from "../../domain/device";
 import { calculateDistance } from "../../domain/group";
 import { formatDistance as formatDistanceUtil } from "../../utils/distance";
 import { getCurrentLocation } from "../../services/location-service";
+import { selectDeviceLocation } from "../../store/slices/appSlice";
 import { log } from "../../lib/logging/logger";
+import type { RootState } from "../../store";
 import {
   Message as TakiMessage,
   MessageAvatar,
@@ -116,9 +119,7 @@ export const MessageBubble = memo(
               .findOne(message.device_id)
               .exec();
             if (deviceDoc) {
-              setTimeout(() => {
-                setSenderDevice(deviceDoc.toJSON() as Device);
-              }, 0);
+              setSenderDevice(deviceDoc.toJSON() as Device);
             }
           } catch (err) {
             log.error("Failed to load device", err, {
@@ -130,53 +131,53 @@ export const MessageBubble = memo(
       }
     }, [device, isOwn, message.device_id]);
 
-    // Calculate distance from sender
-    useEffect(() => {
-      if (isOwn || !groupLocation) {
-        setTimeout(() => setDistance(null), 0);
-        return;
-      }
+  // Get device location from Redux state
+  const deviceLocation = useSelector((state: RootState) => selectDeviceLocation(state));
 
-      const calculateDistanceFromSender = async () => {
-        try {
-          // Get current user location
-          const userLocation = await getCurrentLocation();
-          if (!userLocation) {
-            // Try to get from localStorage
-            const savedLocation = localStorage.getItem("device_location");
-            if (savedLocation) {
-              const loc = JSON.parse(savedLocation);
-              if (loc.latitude && loc.longitude) {
-                // Calculate distance from group location (sender is at group location)
-                const dist = calculateDistance(
-                  loc.latitude,
-                  loc.longitude,
-                  groupLocation.latitude,
-                  groupLocation.longitude
-                );
-                setTimeout(() => setDistance(dist), 0);
-              }
-            }
-            return;
-          }
+  // Calculate distance from sender
+  useEffect(() => {
+    if (isOwn || !groupLocation) {
+      setDistance(null);
+      return;
+    }
 
-          // Calculate distance from group location
-          const dist = calculateDistance(
-            userLocation.latitude,
-            userLocation.longitude,
-            groupLocation.latitude,
-            groupLocation.longitude
-          );
-          setTimeout(() => setDistance(dist), 0);
-        } catch (err) {
-          log.error("Failed to calculate distance", err, {
-            messageId: message.id,
-          });
+    const calculateDistanceFromSender = async () => {
+      try {
+        // Try to get current location first
+        let userLocation = await getCurrentLocation();
+        
+        // Fallback to Redux state if GPS unavailable
+        if (!userLocation && deviceLocation) {
+          userLocation = {
+            latitude: deviceLocation.latitude,
+            longitude: deviceLocation.longitude,
+            timestamp: Date.now(),
+          };
         }
-      };
+        
+        if (!userLocation) {
+          setDistance(null);
+          return;
+        }
 
-      void calculateDistanceFromSender();
-    }, [isOwn, groupLocation, message.id]);
+        // Calculate distance from group location
+        const dist = calculateDistance(
+          userLocation.latitude,
+          userLocation.longitude,
+          groupLocation.latitude,
+          groupLocation.longitude
+        );
+        setDistance(dist);
+      } catch (err) {
+        log.error("Failed to calculate distance", err, {
+          messageId: message.id,
+        });
+        setDistance(null);
+      }
+    };
+
+    void calculateDistanceFromSender();
+  }, [isOwn, groupLocation, message.id, deviceLocation]);
 
     // Check if message is pinned
     useEffect(() => {
@@ -184,9 +185,7 @@ export const MessageBubble = memo(
         const checkPinned = async () => {
           try {
             const pinnedStatus = await isPinned(message.id);
-            setTimeout(() => {
-              setPinned(pinnedStatus);
-            }, 0);
+            setPinned(pinnedStatus);
           } catch (err) {
             log.error("Failed to check pin status", err, {
               messageId: message.id,

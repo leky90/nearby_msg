@@ -26,6 +26,15 @@ interface AppState {
   
   // GPS permission status (cached to avoid repeated checks)
   gpsStatus: GPSStatus | null;
+  
+  // App initialization state
+  initialization: {
+    status: 'idle' | 'checking' | 'loading' | 'ready' | 'error';
+    onboardingRequired: boolean;
+    deviceCheckComplete: boolean;
+    servicesStarted: boolean;
+    error: string | null;
+  };
 }
 
 const initialState: AppState = {
@@ -34,6 +43,13 @@ const initialState: AppState = {
   selectedRadius: 500,
   deviceLocation: null,
   gpsStatus: null,
+  initialization: {
+    status: 'idle',
+    onboardingRequired: false,
+    deviceCheckComplete: false,
+    servicesStarted: false,
+    error: null,
+  },
 };
 
 const appSlice = createSlice({
@@ -85,6 +101,28 @@ const appSlice = createSlice({
     setGPSStatus: (state, action: PayloadAction<GPSStatus | null>) => {
       state.gpsStatus = action.payload;
     },
+    // App initialization actions
+    setInitializationStatus: (
+      state,
+      action: PayloadAction<{
+        status: 'idle' | 'checking' | 'loading' | 'ready' | 'error';
+        error?: string | null;
+      }>
+    ) => {
+      state.initialization.status = action.payload.status;
+      if (action.payload.error !== undefined) {
+        state.initialization.error = action.payload.error;
+      }
+    },
+    setOnboardingRequired: (state, action: PayloadAction<boolean>) => {
+      state.initialization.onboardingRequired = action.payload;
+    },
+    setDeviceCheckComplete: (state, action: PayloadAction<boolean>) => {
+      state.initialization.deviceCheckComplete = action.payload;
+    },
+    setServicesStarted: (state, action: PayloadAction<boolean>) => {
+      state.initialization.servicesStarted = action.payload;
+    },
   },
 });
 
@@ -96,7 +134,16 @@ export const {
   setDeviceLocation,
   updateDeviceLocationAddress,
   setGPSStatus,
+  setInitializationStatus,
+  setOnboardingRequired,
+  setDeviceCheckComplete,
+  setServicesStarted,
 } = appSlice.actions;
+
+// Action creators for app initialization
+export const initAppAction = () => ({ type: 'app/init' });
+export const checkDeviceAction = () => ({ type: 'app/checkDevice' });
+export const startServicesAction = () => ({ type: 'app/startServices' });
 
 // Selectors
 export const selectNetworkStatus = (state: { app: AppState }) => state.app.networkStatus;
@@ -104,5 +151,10 @@ export const selectUserStatus = (state: { app: AppState }) => state.app.userStat
 export const selectSelectedRadius = (state: { app: AppState }) => state.app.selectedRadius;
 export const selectDeviceLocation = (state: { app: AppState }) => state.app.deviceLocation;
 export const selectGPSStatus = (state: { app: AppState }) => state.app.gpsStatus;
+export const selectInitializationStatus = (state: { app: AppState }) => state.app.initialization.status;
+export const selectOnboardingRequired = (state: { app: AppState }) => state.app.initialization.onboardingRequired;
+export const selectDeviceCheckComplete = (state: { app: AppState }) => state.app.initialization.deviceCheckComplete;
+export const selectServicesStarted = (state: { app: AppState }) => state.app.initialization.servicesStarted;
+export const selectInitializationError = (state: { app: AppState }) => state.app.initialization.error;
 
 export default appSlice.reducer;
