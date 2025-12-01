@@ -3,41 +3,40 @@
  * Modern chat interface with improved UX
  */
 
-import { useMessages } from "../hooks/useMessages";
+import { useMessages } from "@/features/messages/hooks/useMessages";
 import { useDispatch, useSelector } from "react-redux";
-import { sendTextMessageAction } from "@/store/sagas/messageSaga";
+import { sendTextMessageAction } from "@/features/messages/store/saga";
 import {
   connectWebSocketAction,
   subscribeToGroupsAction,
-} from "@/store/sagas/websocketSaga";
-import { toggleFavoriteAction } from "@/store/sagas/groupSaga";
-import { selectIsWebSocketConnected } from "@/store/slices/websocketSlice";
-import { selectJWTToken } from "@/store/slices/deviceSlice";
+} from "@/features/websocket/store/saga";
+import { selectIsWebSocketConnected } from "@/features/websocket/store/slice";
+import { selectJWTToken } from "@/features/device/store/slice";
 import type { RootState } from "@/store";
-import { ChatHeader } from "../components/chat/ChatHeader";
-import { MessageList } from "../components/chat/MessageList";
-import { MessageInput } from "../components/chat/MessageInput";
-import { PinnedMessagesSheet } from "../components/chat/PinnedMessagesSheet";
-import { getDatabase } from "../services/db";
-import { getGroup } from "../services/group-service";
-import { addFavorite, removeFavorite } from "../services/favorite-service";
+import { ChatHeader } from "@/features/messages/components/ChatHeader";
+import { MessageList } from "@/features/messages/components/MessageList";
+import { MessageInput } from "@/features/messages/components/MessageInput";
+import { PinnedMessagesSheet } from "@/features/messages/components/PinnedMessagesSheet";
+import { fetchGroupDetailsAction } from "@/features/groups/store/groupSaga";
+import {
+  selectGroupById,
+  selectGroupDetails,
+} from "@/features/groups/store/slice";
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   setActiveTab,
   setCurrentChatGroupId,
-} from "@/store/slices/navigationSlice";
+} from "@/features/navigation/store/slice";
 import { RefreshCw, ArrowLeft } from "lucide-react";
-import type { Group } from "../domain/group";
-import { log } from "../lib/logging/logger";
-import { Skeleton } from "../components/ui/skeleton";
-import { Button } from "../components/ui/button";
-import { t } from "../lib/i18n";
-import { NetworkBanner } from "../components/common/NetworkBanner";
-import { TopNavigation } from "../components/navigation/TopNavigation";
-import { WebSocketStatusIndicator } from "../components/common/WebSocketStatusIndicator";
-import { showToast } from "../utils/toast";
-import { cn } from "@/lib/utils";
+import { log } from "@/shared/lib/logging/logger";
+import { Skeleton } from "@/shared/components/ui/skeleton";
+import { Button } from "@/shared/components/ui/button";
+import { t } from "@/shared/lib/i18n";
+import { NetworkBanner } from "@/shared/components/NetworkBanner";
+import { TopNavigation } from "@/features/navigation/components/TopNavigation";
+import { WebSocketStatusIndicator } from "@/features/websocket/components/WebSocketStatusIndicator";
+import { cn } from "@/shared/lib/utils";
 
 export interface ChatPageProps {
   /** Group ID */
@@ -51,8 +50,6 @@ export interface ChatPageProps {
 export function ChatPage({ groupId }: ChatPageProps) {
   const navigate = useNavigate();
   const dispatch = useDispatch();
-  const [group, setGroup] = useState<Group | null>(null);
-  const [isLoadingGroup, setIsLoadingGroup] = useState(true);
   const [pinnedDrawerOpen, setPinnedDrawerOpen] = useState(false);
 
   // WebSocket state
@@ -61,29 +58,26 @@ export function ChatPage({ groupId }: ChatPageProps) {
   );
   const jwtToken = useSelector((state: RootState) => selectJWTToken(state));
 
-  // Load group information from RxDB (synced via replication)
-  const loadGroup = async () => {
-    if (!groupId) return;
-    setIsLoadingGroup(true);
-    try {
-      // Read from RxDB (data is synced via replication mechanism)
-      // Replication sync runs every 5 seconds, so data is fresh
-      const group = await getGroup(groupId);
-      if (group) {
-        setGroup(group);
-      } else {
-        log.warn("Group not found", { groupId });
-      }
-    } catch (err) {
-      log.error("Failed to load group", err, { groupId });
-    } finally {
-      setIsLoadingGroup(false);
-    }
-  };
+  // Read group from Redux store (updated by Groups RxDB listener)
+  const group = useSelector((state: RootState) =>
+    selectGroupById(state, groupId)
+  );
+  const groupDetails = useSelector((state: RootState) =>
+    selectGroupDetails(state, groupId)
+  );
+  const isLoadingGroup = groupDetails.isLoading;
 
+  // Dispatch action to fetch group if not in Redux store
   useEffect(() => {
-    void loadGroup();
-  }, [groupId]);
+    if (!groupId) return;
+
+    // If group is not in Redux store, dispatch action to fetch it
+    // This will trigger saga to fetch from RxDB/API, which updates RxDB,
+    // which triggers Groups RxDB listener to update Redux
+    if (!group && !isLoadingGroup) {
+      dispatch(fetchGroupDetailsAction(groupId));
+    }
+  }, [groupId, group, isLoadingGroup, dispatch]);
 
   // Connect WebSocket and subscribe to group on mount
   useEffect(() => {
@@ -107,36 +101,9 @@ export function ChatPage({ groupId }: ChatPageProps) {
     }
   }, [isWebSocketConnected, groupId, dispatch]);
 
-  // Watch RxDB for group updates (reactive query via replication sync)
-  // No need to poll API - replication sync handles updates automatically
-  useEffect(() => {
-    if (!groupId) return;
-
-    let subscription: (() => void) | null = null;
-
-    const watchGroup = async () => {
-      const db = await getDatabase();
-      const groupDoc = await db.groups.findOne(groupId).exec();
-
-      if (groupDoc) {
-        // Subscribe to changes (reactive query)
-        const sub = groupDoc.$.subscribe((doc) => {
-          if (doc) {
-            setGroup(doc.toJSON() as Group);
-          }
-        });
-        subscription = () => sub.unsubscribe();
-      }
-    };
-
-    void watchGroup();
-
-    return () => {
-      if (subscription) {
-        subscription();
-      }
-    };
-  }, [groupId]);
+  // Group updates are handled by Groups RxDB listener → Redux store
+  // Component automatically re-renders when Redux store updates via selector
+  // No need for direct RxDB subscription - Redux is the single source of truth
 
   // Use reactive messages hook
   const {
@@ -150,7 +117,10 @@ export function ChatPage({ groupId }: ChatPageProps) {
   });
 
   const handleRefresh = () => {
-    void loadGroup();
+    // Refresh group by dispatching action (will fetch from RxDB/API and update Redux)
+    if (groupId) {
+      dispatch(fetchGroupDetailsAction(groupId));
+    }
     void refreshMessages();
   };
 
@@ -272,34 +242,6 @@ export function ChatPage({ groupId }: ChatPageProps) {
         </div>
         <ChatHeader
           group={group}
-          onFavoriteToggle={async (isFavorited) => {
-            if (!groupId) return;
-
-            try {
-              if (isFavorited) {
-                await addFavorite(groupId);
-                showToast("Đã thêm vào danh sách quan tâm", "success");
-              } else {
-                await removeFavorite(groupId);
-                showToast("Đã xóa khỏi danh sách quan tâm", "success");
-              }
-
-              // Dispatch action to update Redux state (favorites are managed via toggleFavoriteAction)
-              dispatch(toggleFavoriteAction(groupId));
-            } catch (err) {
-              log.error("Failed to toggle favorite", err, { groupId });
-              const errorMessage =
-                err instanceof Error
-                  ? err.message
-                  : "Không thể cập nhật trạng thái quan tâm";
-              showToast(errorMessage, "error");
-            }
-          }}
-          onGroupUpdated={(updatedGroup) => {
-            setGroup(updatedGroup);
-            // Also reload to ensure consistency
-            void loadGroup();
-          }}
         />
       </div>
 
@@ -309,11 +251,6 @@ export function ChatPage({ groupId }: ChatPageProps) {
           messages={messages}
           groupId={groupId}
           isLoading={isLoading}
-          groupLocation={
-            group
-              ? { latitude: group.latitude, longitude: group.longitude }
-              : null
-          }
         />
       </div>
 
@@ -337,11 +274,6 @@ export function ChatPage({ groupId }: ChatPageProps) {
           // This could be enhanced to actually scroll to the message
           log.debug("Navigate to message", { messageId: message.id });
         }}
-        groupLocation={
-          group
-            ? { latitude: group.latitude, longitude: group.longitude }
-            : null
-        }
       />
     </div>
   );

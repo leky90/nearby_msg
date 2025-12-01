@@ -135,7 +135,7 @@ Root Saga (rootSaga.ts)
 └── websocketSaga: WebSocket connection, messages
 ```
 
-**Data Flow Pattern:**
+**Data Flow Pattern (Centralized):**
 
 ```
 Component
@@ -143,13 +143,24 @@ Component
 Redux Saga
    ↓ call(service)
 Service Layer (API/RxDB/WebSocket)
-   ↓ return data
-Redux Saga
-   ↓ put(action)
+   ↓ update RxDB
+RxDB Change Listener (Saga Event Channel)
+   ↓ dispatch(setData(data))
 Redux Slice (reducer)
    ↓ update state
 Component re-renders (useSelector)
 ```
+
+**Key Principles:**
+
+- Components **ONLY** read from Redux store via `useSelector`
+- Components **ONLY** dispatch actions, never call services directly
+- All data fetching goes through Redux Sagas
+- RxDB changes are automatically synced to Redux via listeners
+- Single source of truth: Redux store
+- **Debouncing/Throttling**: All debouncing and throttling logic is in Saga handlers, not components
+- **Duplicate Prevention**: Saga handlers track in-progress requests to prevent duplicates
+- **Error/Loading States**: All error and loading states are managed in Redux by Saga handlers
 
 ---
 
@@ -436,19 +447,23 @@ Replication sync pushPendingMessages():
 ChatPage component mount
    ↓
 useEffect:
-   1. Load group từ RxDB
+   1. dispatch(fetchGroupDetailsAction(groupId)) → Saga fetches from RxDB/API
    2. Connect WebSocket nếu chưa connected
    3. Subscribe to group khi WebSocket connected
    ↓
+Component reads from Redux:
+   - useSelector(selectGroupById(groupId)) → Group data
+   - useSelector(selectGroupDetails(groupId)) → Loading/error state
+   ↓
 useMessages hook:
    1. dispatch(syncMessagesAction()) → Redux Saga fetch từ RxDB
-   2. Setup RxDB subscription (reactive)
-   3. Sync to Redux state
+   2. Reads messages from Redux via selector
+   3. RxDB listener automatically syncs changes to Redux
    4. Return messages cho component
    ↓
 Component render:
-   - ChatHeader: group info, favorite button
-   - MessageList: render messages từ useMessages
+   - ChatHeader: group info from Redux, favorite button
+   - MessageList: render messages từ useMessages (Redux)
    - MessageInput: input form, send button
    ↓
 User gửi message:
@@ -456,6 +471,7 @@ User gửi message:
    → Message xuất hiện ngay (optimistic update)
    → WebSocket gửi message
    → Server confirm → message được mark as synced
+   → RxDB listener → Redux update → UI update
 ```
 
 ### 7.2. Message List Updates
@@ -592,7 +608,126 @@ Retry logic:
 
 ---
 
-## 10. Performance Optimizations
+## 10. Component & Hook Patterns (Redux-Only)
+
+### 10.1. Component Contract
+
+**Components MUST:**
+
+- Use `useSelector` to read data from Redux store
+- Use `dispatch(action)` to trigger side effects
+- Keep UI-only state local (modals, form inputs, display toggles)
+
+**Components MUST NOT:**
+
+- Use `useState` for data (groups, messages, devices, etc.)
+- Call services directly (import from `services/`)
+- Implement debouncing/throttling logic
+- Manage loading/error states locally
+- Implement duplicate prevention logic
+
+**Example - Correct Pattern:**
+
+```typescript
+export function MyComponent() {
+  const dispatch = useDispatch();
+  const data = useSelector(selectData);
+  const isLoading = useSelector(selectIsLoading);
+  const error = useSelector(selectError);
+
+  // UI-only state is OK
+  const [isModalOpen, setIsModalOpen] = useState(false);
+
+  useEffect(() => {
+    dispatch(fetchDataAction());
+  }, [dispatch]);
+
+  if (isLoading) return <Loading />;
+  if (error) return <Error error={error} />;
+  return <div>{data}</div>;
+}
+```
+
+### 10.2. Hook Contract
+
+**Hooks MUST:**
+
+- Use `useSelector` to read data from Redux store
+- Use `dispatch(action)` to trigger side effects
+- Return data from Redux selectors
+
+**Hooks MUST NOT:**
+
+- Use `useState` for data
+- Call services directly
+- Implement async logic (use Saga instead)
+- Implement business logic
+
+**Example - Correct Pattern:**
+
+```typescript
+export function useMyData() {
+  const dispatch = useDispatch();
+  const data = useSelector(selectData);
+  const isLoading = useSelector(selectIsLoading);
+
+  useEffect(() => {
+    dispatch(fetchDataAction());
+  }, [dispatch]);
+
+  return { data, isLoading };
+}
+```
+
+### 10.3. Saga Debouncing/Throttling Patterns
+
+**Pattern 1: takeLatest (Cancel Previous Requests)**
+
+```typescript
+// Use for location fetches, nearby groups, suggestions
+function* watchFetchNearbyGroups() {
+  yield takeLatest(FETCH_NEARBY_GROUPS, handleFetchNearbyGroups);
+}
+```
+
+**Pattern 2: takeEvery + Duplicate Prevention (Track In-Progress)**
+
+```typescript
+const syncingMessages = new Set<string>();
+
+function* handleSyncMessages(action) {
+  const groupId = action.payload;
+  if (syncingMessages.has(groupId)) {
+    return; // Skip duplicate
+  }
+  syncingMessages.add(groupId);
+  try {
+    // ... sync logic
+  } finally {
+    syncingMessages.delete(groupId);
+  }
+}
+```
+
+**Pattern 3: takeEvery + Time-Based Debouncing**
+
+```typescript
+let lastFetchTime = 0;
+const FETCH_DEBOUNCE_MS = 1000;
+
+function* handleFetch() {
+  const now = Date.now();
+  if (now - lastFetchTime < FETCH_DEBOUNCE_MS) {
+    return; // Skip if called too recently
+  }
+  lastFetchTime = now;
+  // ... fetch logic
+}
+```
+
+---
+
+## 11. Performance Optimizations
 
 ### 10.1. Selector Memoization
 
@@ -601,6 +736,19 @@ Tất cả selectors dùng createSelector:
    - Memoize kết quả
    - Chỉ re-compute khi dependencies thay đổi
    - Giảm unnecessary re-renders
+   - Components only re-render when selected data actually changes
+```
+
+### 10.4. Centralized Data Flow Benefits
+
+```
+Centralized data flow pattern provides:
+   - Single source of truth (Redux store)
+   - Predictable state updates
+   - Easy testing (mock Redux store only)
+   - No direct RxDB/API dependencies in components
+   - Automatic synchronization via RxDB listeners
+   - Consistent data flow across all features
 ```
 
 ### 10.2. Message Updates

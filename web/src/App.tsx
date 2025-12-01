@@ -1,21 +1,20 @@
 import { useEffect } from "react";
 import { RouterProvider } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
-import { ErrorBoundary } from "./components/common/ErrorBoundary";
-import { Toaster } from "./components/ui/sonner";
-import { OnboardingScreen } from "./components/onboarding/OnboardingScreen";
+import { ErrorBoundary } from "@/shared/components/ErrorBoundary";
+import { Toaster } from "@/shared/components/ui/sonner";
+import { OnboardingScreen } from "@/features/onboarding/components/OnboardingScreen";
 import { createAppRouter } from "./router";
-import { useDeviceLocation } from "./hooks/useDeviceLocation";
-import { monitorStorageQuota } from "./services/storage-quota";
-import { showToast } from "./utils/toast";
-import { PWAUpdateNotification } from "./components/common/PWAUpdateNotification";
-import { initAppAction } from "./store/slices/appSlice";
+import { monitorStorageQuota } from "@/shared/services/storage-quota";
+import { showToast } from "@/shared/utils/toast";
+import { PWAUpdateNotification } from "@/shared/components/PWAUpdateNotification";
+import { initAppAction } from "@/features/navigation/store/appSlice";
 import {
   selectInitializationStatus,
   selectOnboardingRequired,
-} from "./store/slices/appSlice";
-import { selectDeviceLoading } from "./store/slices/deviceSlice";
-import type { RootState } from "./store";
+} from "@/features/navigation/store/appSlice";
+import { selectDeviceLoading } from "@/features/device/store/slice";
+import type { RootState } from "@/store";
 
 const router = createAppRouter();
 
@@ -34,12 +33,14 @@ function App() {
   );
 
   // Initialize app on mount - dispatch action to saga
+  // Note: In development, React StrictMode will cause this to run twice
+  // The saga has guards to prevent duplicate initialization
   useEffect(() => {
-    dispatch(initAppAction());
-  }, [dispatch]);
-
-  // Sync device location from localStorage to app store
-  useDeviceLocation();
+    // Only initialize if status is idle (not already initializing/initialized)
+    if (initializationStatus === "idle") {
+      dispatch(initAppAction());
+    }
+  }, [dispatch, initializationStatus]);
 
   // Monitor storage quota
   useEffect(() => {
@@ -66,12 +67,7 @@ function App() {
   ) {
     return (
       <ErrorBoundary>
-        <OnboardingScreen
-          onComplete={async () => {
-            // Onboarding completion is handled by saga
-            // Device registration will trigger device fetch, which will trigger service startup
-          }}
-        />
+        <OnboardingScreen />
         <Toaster />
       </ErrorBoundary>
     );

@@ -1,11 +1,11 @@
 import { combineReducers } from '@reduxjs/toolkit';
-import appReducer from './slices/appSlice';
-import navigationReducer from './slices/navigationSlice';
-import messagesReducer from './slices/messagesSlice';
-import groupsReducer from './slices/groupsSlice';
-import deviceReducer from './slices/deviceSlice';
-import websocketReducer from './slices/websocketSlice';
-import syncStatusReducer from './slices/syncStatusSlice';
+import appReducer from '@/features/navigation/store/appSlice';
+import navigationReducer from '@/features/navigation/store/slice';
+import messagesReducer from '@/features/messages/store/slice';
+import groupsReducer from '@/features/groups/store/slice';
+import deviceReducer from '@/features/device/store/slice';
+import websocketReducer from '@/features/websocket/store/slice';
+import syncStatusReducer from '@/features/status/store/slice';
 
 const rootReducer = combineReducers({
   app: appReducer,

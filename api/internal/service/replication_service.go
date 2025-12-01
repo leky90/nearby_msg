@@ -137,6 +137,10 @@ type PullDocumentsRequest struct {
 	Collections []string             `json:"collections"`          // List of collections to sync
 	GroupIDs    []string             `json:"group_ids,omitempty"`  // Filter messages by group IDs (messages collection only)
 	Limit       int                  `json:"limit,omitempty"`      // Max documents per collection
+	// Location filter for groups collection (optional)
+	Latitude  *float64 `json:"latitude,omitempty"`  // Location latitude for nearby groups filter
+	Longitude *float64 `json:"longitude,omitempty"` // Location longitude for nearby groups filter
+	Radius    *float64 `json:"radius,omitempty"`    // Radius in meters for nearby groups filter
 }
 
 // Deletion represents a deletion signal for a specific entity
@@ -573,13 +577,33 @@ func (s *ReplicationService) PullDocuments(ctx context.Context, deviceID string,
 			}
 
 		case "groups":
-			groups, err := s.groupRepo.GetGroupsAfter(ctx, since, limit)
+			var groups []*domain.Group
+			var err error
+			
+			// Use nearby filter if location is provided
+			if req.Latitude != nil && req.Longitude != nil && req.Radius != nil {
+				// Use FindNearby for location-based filtering
+				nearbyResults, err := s.groupRepo.FindNearby(ctx, *req.Latitude, *req.Longitude, *req.Radius)
+				if err != nil {
+					logger := logging.GetLogger()
+					logger.Warn("Failed to pull nearby groups collection", "deviceID", deviceID, "collection", "groups", "error", err)
+					continue
+				}
+				// Convert NearbyGroupResult to Group
+				groups = make([]*domain.Group, 0, len(nearbyResults))
+				for _, result := range nearbyResults {
+					groups = append(groups, result.Group)
+				}
+			} else {
+				// Fallback to GetGroupsAfter for time-based sync
+				groups, err = s.groupRepo.GetGroupsAfter(ctx, since, limit)
 			if err != nil {
-				// Log error with structured context but continue with other collections (partial failure handling)
 				logger := logging.GetLogger()
 				logger.Warn("Failed to pull groups collection", "deviceID", deviceID, "collection", "groups", "error", err)
 				continue
 			}
+			}
+			
 			if len(groups) > 0 {
 				for _, group := range groups {
 					collectionDocs = append(collectionDocs, group)

@@ -3,53 +3,31 @@
  * Main landing page with bottom navigation and tab-based views
  */
 
-import { useNavigate } from "react-router-dom";
 import { useSelector, useDispatch } from "react-redux";
 import {
   selectActiveTab,
   setActiveTab,
-  navigateToChat,
   type TabType,
-} from "@/store/slices/navigationSlice";
-import {
-  selectSelectedRadius,
-  setSelectedRadius,
-} from "@/store/slices/appSlice";
+} from "@/features/navigation/store/slice";
 import type { RootState } from "@/store";
-import { useSwipeGesture } from "@/hooks/useSwipeGesture";
-import { useNetworkStatus } from "@/hooks/useNetworkStatus";
-import { useUserStatus } from "@/hooks/useUserStatus";
-import { BottomNavigation } from "@/components/navigation/BottomNavigation";
-import { TopNavigation } from "@/components/navigation/TopNavigation";
-import { RadiusFilterFAB } from "@/components/navigation/RadiusFilterFAB";
-import { CreateGroupFAB } from "@/components/navigation/CreateGroupFAB";
-import { ExploreFeed } from "@/components/feed/ExploreFeed";
-import { FollowingFeed } from "@/components/feed/FollowingFeed";
-import { SOSView } from "@/components/sos/SOSView";
-import { StatusView } from "@/components/status/StatusView";
-import { ErrorBoundary } from "@/components/common/ErrorBoundary";
-import { cn } from "@/lib/utils";
+import { useSwipeGesture } from "@/shared/hooks/useSwipeGesture";
+import { BottomNavigation } from "@/features/navigation/components/BottomNavigation";
+import { TopNavigation } from "@/features/navigation/components/TopNavigation";
+import { ExploreFeed } from "@/features/groups/components/feed/ExploreFeed";
+import { FollowingFeed } from "@/features/groups/components/feed/FollowingFeed";
+import { SOSView } from "@/features/sos/components/SOSView";
+import { StatusView } from "@/features/status/components/StatusView";
+import { ErrorBoundary } from "@/shared/components/ErrorBoundary";
+import { cn } from "@/shared/lib/utils";
 
 const tabOrder: TabType[] = ["sos", "following", "explore", "status"];
 
 export function Home() {
-  const navigate = useNavigate();
   const dispatch = useDispatch();
   const activeTab = useSelector((state: RootState) => selectActiveTab(state));
-  const selectedRadius = useSelector((state: RootState) =>
-    selectSelectedRadius(state)
-  );
 
   const handleSetActiveTab = (tab: TabType) => {
     dispatch(setActiveTab(tab));
-  };
-
-  const handleSetSelectedRadius = (radius: 500 | 1000 | 2000) => {
-    dispatch(setSelectedRadius(radius));
-  };
-
-  const handleNavigateToChat = (groupId: string) => {
-    dispatch(navigateToChat(groupId));
   };
 
   // Swipe gesture for tab switching
@@ -74,15 +52,6 @@ export function Home() {
     preventDefault: false, // Don't prevent default to allow scrolling
   });
 
-  // Initialize network and user status
-  useNetworkStatus();
-  useUserStatus();
-
-  const handleGroupSelect = (groupId: string) => {
-    handleNavigateToChat(groupId);
-    navigate(`/chat/${groupId}`);
-  };
-
   const renderActiveView = () => {
     switch (activeTab) {
       case "sos":
@@ -90,20 +59,13 @@ export function Home() {
       case "following":
         return (
           <ErrorBoundary>
-            <FollowingFeed
-              onGroupSelect={handleGroupSelect}
-              className="h-full"
-            />
+            <FollowingFeed className="h-full" />
           </ErrorBoundary>
         );
       case "explore":
         return (
           <ErrorBoundary>
-            <ExploreFeed
-              radius={selectedRadius}
-              onGroupSelect={handleGroupSelect}
-              className="h-full"
-            />
+            <ExploreFeed className="h-full" />
           </ErrorBoundary>
         );
       case "status":
@@ -117,11 +79,7 @@ export function Home() {
       default:
         return (
           <ErrorBoundary>
-            <ExploreFeed
-              radius={selectedRadius}
-              onGroupSelect={handleGroupSelect}
-              className="h-full"
-            />
+            <ExploreFeed className="h-full" />
           </ErrorBoundary>
         );
     }
@@ -155,24 +113,6 @@ export function Home() {
 
       {/* Bottom Navigation - Fixed at bottom */}
       <BottomNavigation />
-
-      {/* Create Group FAB - Show on Explore and Following tabs */}
-      {(activeTab === "explore" || activeTab === "following") && (
-        <CreateGroupFAB
-          onGroupCreated={(_group) => {
-            // Don't auto-navigate to the newly created group
-            // User can manually select it from the list
-          }}
-        />
-      )}
-
-      {/* Radius Filter FAB - Only show on Explore tab */}
-      {activeTab === "explore" && (
-        <RadiusFilterFAB
-          selectedRadius={selectedRadius}
-          onRadiusChange={handleSetSelectedRadius}
-        />
-      )}
     </div>
   );
 }

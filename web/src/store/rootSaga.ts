@@ -1,12 +1,12 @@
 import { all } from 'redux-saga/effects';
-import { appSaga } from './sagas/appSaga';
-import { deviceSaga } from './sagas/deviceSaga';
-import { groupSaga } from './sagas/groupSaga';
-import { locationSaga } from './sagas/locationSaga';
-import { messageSaga } from './sagas/messageSaga';
-import { statusSaga } from './sagas/statusSaga';
-import { syncStatusSaga } from './sagas/syncStatusSaga';
-import { websocketSaga } from './sagas/websocketSaga';
+import { appSaga } from '@/features/navigation/store/appSaga';
+import { deviceSaga } from '@/features/device/store/saga';
+import { groupSaga } from '@/features/groups/store/groupSaga';
+import { locationSaga } from '@/features/groups/store/locationSaga';
+import { messageSaga } from '@/features/messages/store/saga';
+import { statusSaga } from '@/features/status/store/statusSaga';
+import { syncStatusSaga } from '@/features/status/store/syncStatusSaga';
+import { websocketSaga } from '@/features/websocket/store/saga';
 
 export function* rootSaga() {
   yield all([
