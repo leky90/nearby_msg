@@ -5,6 +5,7 @@ import { updateStatusMutation, fetchStatus } from "@/features/status/services/st
 import { setUserStatus } from "@/features/navigation/store/appSlice";
 import { getDatabase } from "@/shared/services/db";
 import { getOrCreateDeviceId } from "@/features/device/services/device-storage";
+import { pullDocuments } from "@/features/replication/services/replication-sync";
 import { log } from "@/shared/lib/logging/logger";
 
 // Action types
@@ -44,8 +45,21 @@ function* watchFetchUserStatus() {
 
 function* handleFetchUserStatus() {
   try {
+    // Read from RxDB first
     const status: UserStatus | null = yield call(fetchStatus);
-    yield put(setUserStatus(status));
+    
+    if (status) {
+      yield put(setUserStatus(status));
+    } else {
+      // Status not in RxDB: trigger pull replication to fetch from server
+      // This ensures all data flows through RxDB, not direct API calls
+      log.debug('User status not in RxDB, triggering pull replication');
+      yield call(pullDocuments, ['user_status']);
+      
+      // Read again after pull
+      const statusAfterPull: UserStatus | null = yield call(fetchStatus);
+      yield put(setUserStatus(statusAfterPull));
+    }
   } catch (error) {
     log.error('Failed to fetch user status', error);
     yield put(setUserStatus(null));

@@ -13,42 +13,19 @@ import { isOnline } from '@/shared/services/network-status';
 import { getDeviceId } from '@/features/device/services/device-storage';
 
 /**
- * Discovers nearby groups using cache-first approach.
- * Reads from RxDB first (groups already synced via replication), only calls API if needed.
+ * Discovers nearby groups using RxDB-only approach.
+ * Reads from RxDB (groups synced via replication).
+ * Note: Caller should trigger pull replication before calling this if cache might be empty.
  * @param request - Nearby groups request with location and radius
  * @returns Promise resolving to nearby groups with distances
  */
 export async function discoverNearbyGroups(
   request: NearbyGroupsRequest
 ): Promise<NearbyGroupsResponse> {
-  // Cache-first: Try RxDB first (groups already synced via replication)
-  const cachedResult = await getCachedNearbyGroups(request);
-  
-  // If we have groups in cache, use them (no API call needed)
+  // RxDB-only: Read from cache (groups synced via replication)
   // Replication sync keeps cache fresh (every 5 seconds), so cached groups are up-to-date
-  if (cachedResult.groups.length > 0) {
-    return cachedResult;
-  }
-  
-  // Cache miss or empty: Fallback to API to discover new groups
-  // This happens on first load or when no groups in area yet
-  try {
-    const response = await get<Array<{ group: Group; distance: number; activity: number }>>(
-      `/groups/nearby?latitude=${request.latitude}&longitude=${request.longitude}&radius=${request.radius}`
-    );
-
-    const groups = response.map((item) => item.group);
-    const distances = response.map((item) => item.distance);
-    
-    // Store newly discovered groups in RxDB for future cache hits
-    const db = await getDatabase();
-    await Promise.all(groups.map((group) => db.groups.upsert(group)));
-
-    return { groups, distances };
-  } catch {
-    // If API fails, return empty result (already tried cache)
-    return { groups: [], distances: [] };
-  }
+  // If no groups found, caller should trigger pull replication instead of calling API
+  return await getCachedNearbyGroups(request);
 }
 
 /**
@@ -232,10 +209,12 @@ export async function getDeviceCreatedGroup(): Promise<Group | null> {
 
 /**
  * Gets a group by ID from RxDB (synced via replication).
- * RxDB-first approach: reads from local cache, only falls back to API on cache miss.
+ * RxDB-first approach: reads from local cache only.
  * 
  * Performance: Eliminates unnecessary API calls when groups are already synced.
  * Replication sync keeps cache fresh (every 5 seconds), so cached groups are up-to-date.
+ * 
+ * Note: If group not found, caller should trigger pull replication instead of calling API directly.
  * 
  * @param groupId - Group ID
  * @returns Group or null if not found
@@ -251,17 +230,10 @@ export async function getGroup(groupId: string): Promise<Group | null> {
     return cached.toJSON() as Group;
   }
   
-  // Cache miss: Fallback to API only if group not in local DB
-  // This happens on first load or if group was deleted locally
-  try {
-    const response = await get<Group>(`/groups/${groupId}`);
-    // Store in RxDB for future cache hits
-    await db.groups.upsert(response);
-    return response;
-  } catch {
-    // API failed or group not found
-    return null;
-  }
+  // Cache miss: Return null
+  // Caller should trigger pull replication to fetch from server
+  // This ensures all data flows through RxDB, not direct API calls
+  return null;
 }
 
 /**

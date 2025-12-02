@@ -103,3 +103,15 @@ func (s *DeviceService) GetDevice(ctx context.Context, deviceID string) (*domain
 	}
 	return device, nil
 }
+
+// DeleteDevice deletes a device by ID
+// Note: When a device is deleted, the database will automatically:
+// - Set creator_device_id to NULL for any groups created by this device (via ON DELETE SET NULL)
+// - Delete related records in other tables (user_status, favorite_groups, pinned_messages, messages) via CASCADE
+// Groups created by the device will be preserved with creator_device_id = NULL
+func (s *DeviceService) DeleteDevice(ctx context.Context, deviceID string) error {
+	if err := s.repo.Delete(ctx, deviceID); err != nil {
+		return fmt.Errorf("failed to delete device: %w", err)
+	}
+	return nil
+}

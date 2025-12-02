@@ -3,7 +3,7 @@
  * Inline editing for group name
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { Edit2, Check, X, Loader2 } from "lucide-react";
@@ -15,6 +15,7 @@ import {
   selectGroupLoading,
   selectGroupError,
 } from "@/features/groups/store/slice";
+import { selectDevice } from "@/features/device/store/slice";
 import { showToast } from "@/shared/utils/toast";
 import type { Group } from "@/shared/domain/group";
 import type { RootState } from "@/store";
@@ -25,12 +26,19 @@ import {
 
 export interface GroupNameEditorProps {
   group: Group;
-  isCreator: boolean;
 }
 
-export function GroupNameEditor({ group, isCreator }: GroupNameEditorProps) {
+export function GroupNameEditor({ group }: GroupNameEditorProps) {
+  // All hooks must be called before any early returns (Rules of Hooks)
   const dispatch = useDispatch();
   const [isEditingName, setIsEditingName] = useState(false);
+
+  // Calculate isCreator from Redux state (moved from ChatHeader)
+  const device = useSelector((state: RootState) => selectDevice(state));
+  const isCreator = useMemo(() => {
+    if (!device?.id) return false;
+    return group.creator_device_id === device.id;
+  }, [group.creator_device_id, device?.id]);
 
   // Form state managed by react-hook-form (mode: onBlur for inline editing)
   const form = useForm<GroupNameFormData>({
@@ -50,6 +58,7 @@ export function GroupNameEditor({ group, isCreator }: GroupNameEditorProps) {
   );
 
   // Update form when group name changes in Redux (only when not editing)
+  // All hooks must be called before any early returns
   useEffect(() => {
     if (!isEditingName) {
       form.reset({ name: group.name });
@@ -66,7 +75,7 @@ export function GroupNameEditor({ group, isCreator }: GroupNameEditorProps) {
       showToast(updateError, "error");
       form.setError("root", { message: updateError });
       // Note: setState in effect is acceptable here for error handling
-      // eslint-disable-next-line react-hooks/exhaustive-deps
+
       setIsEditingName(false);
     } else if (!isUpdating && group.name === form.getValues("name")?.trim()) {
       // Update succeeded - name matches what we tried to save, and not loading anymore
@@ -176,18 +185,15 @@ export function GroupNameEditor({ group, isCreator }: GroupNameEditorProps) {
 
   return (
     <>
-      <h2 className="text-sm font-semibold truncate">{group.name}</h2>
-      {isCreator && (
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={handleStartEdit}
-          className="h-6 w-6 p-0 shrink-0"
-          aria-label="Chỉnh sửa tên"
-        >
-          <Edit2 className="size-3" />
-        </Button>
-      )}
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={handleStartEdit}
+        className="h-6 w-6 p-0 shrink-0"
+        aria-label="Chỉnh sửa tên"
+      >
+        <Edit2 className="size-3" />
+      </Button>
     </>
   );
 }

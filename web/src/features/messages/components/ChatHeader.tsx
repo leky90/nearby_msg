@@ -4,35 +4,25 @@
  * Uses Redux state managed by groupSaga
  */
 
-import { Star, ArrowLeft } from "lucide-react";
-import { useEffect, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { ArrowLeft } from "lucide-react";
+import { useNavigate, useParams } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
 import {
   setActiveTab,
   setCurrentChatGroupId,
 } from "@/features/navigation/store/slice";
-import { selectGroupStatusSummary } from "@/features/groups/store/slice";
-import {
-  startGroupStatusSummaryAction,
-  stopGroupStatusSummaryAction,
-} from "@/features/groups/store/groupSaga";
+import { selectGroupById } from "@/features/groups/store/slice";
+import type { RootState } from "@/store";
 import type { Group } from "@/shared/domain/group";
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
 import { cn } from "@/shared/lib/utils";
-import { selectDevice } from "@/features/device/store/slice";
-import { selectIsFavoriteGroup } from "@/features/groups/store/slice";
-import { toggleFavoriteAction } from "@/features/groups/store/groupSaga";
-import { StatusSummary } from "@/features/groups/components/StatusSummary";
 import { GroupNameEditor } from "./GroupNameEditor";
+import { FavoriteButton } from "./FavoriteButton";
 import { SyncStatusIndicator } from "./SyncStatusIndicator";
 import { t } from "@/shared/lib/i18n";
-import type { RootState } from "@/store";
 
 export interface ChatHeaderProps {
-  /** Group information */
-  group: Group;
   /** Custom className */
   className?: string;
 }
@@ -58,57 +48,33 @@ function getGroupTypeLabel(type: Group["type"]): string {
 /**
  * Chat Header component
  * Compact header with essential information only
+ * Gets group data directly from Redux to avoid prop drilling
  */
-export function ChatHeader({
-  group,
-  className,
-}: ChatHeaderProps) {
+export function ChatHeader({ className }: ChatHeaderProps) {
   const navigate = useNavigate();
   const dispatch = useDispatch();
+  const { groupId } = useParams<{ groupId: string }>();
+  
+  // Get group directly from Redux store
+  const group = useSelector((state: RootState) =>
+    groupId ? selectGroupById(state, groupId) : null
+  );
 
-  // Get device from Redux store
-  const device = useSelector((state: RootState) => selectDevice(state));
-
-  // Calculate isCreator from Redux state (no local state needed)
-  const isCreator = useMemo(() => {
-    if (!device?.id) return false;
-    return group.creator_device_id === device.id;
-  }, [group.creator_device_id, device?.id]);
+  // If no group, return null (will be handled by parent)
+  if (!group) {
+    return null;
+  }
 
   // Get status summary from Redux state
-  const statusSummaryData = useSelector((state: RootState) =>
-    selectGroupStatusSummary(state, group.id)
-  );
-
-  // Read favorite status from Redux store
-  const favorited = useSelector((state: RootState) =>
-    selectIsFavoriteGroup(state, group.id)
-  );
-  const statusSummary = {
-    safe_count: statusSummaryData.safe_count,
-    need_help_count: statusSummaryData.need_help_count,
-    cannot_contact_count: statusSummaryData.cannot_contact_count,
-    total_count: statusSummaryData.total_count,
-  };
-
-  // Start monitoring status summary on mount
-  useEffect(() => {
-    dispatch(startGroupStatusSummaryAction(group.id));
-
-    return () => {
-      dispatch(stopGroupStatusSummaryAction(group.id));
-    };
-  }, [group.id, dispatch]);
+  // TEMPORARILY DISABLED: Group Status Summary feature
+  // const statusSummaryData = useSelector((state: RootState) =>
+  //   selectGroupStatusSummary(state, group.id)
+  // );
 
   const handleBack = () => {
     dispatch(setCurrentChatGroupId(null));
     dispatch(setActiveTab("explore"));
     navigate("/");
-  };
-
-  // Handle favorite toggle - dispatch Redux action directly
-  const handleFavoriteToggle = () => {
-    dispatch(toggleFavoriteAction(group.id));
   };
 
   return (
@@ -135,12 +101,7 @@ export function ChatHeader({
             <h1 className="text-sm font-semibold truncate">
               {group.name || t("group.unnamed")}
             </h1>
-            {isCreator && (
-              <GroupNameEditor
-                group={group}
-                isCreator={isCreator}
-              />
-            )}
+            <GroupNameEditor group={group} />
           </div>
           <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
             <Badge variant="outline" className="text-[9px] px-1 py-0">
@@ -153,19 +114,9 @@ export function ChatHeader({
 
       {/* Right: Status summary, Favorite button */}
       <div className="flex items-center gap-2 shrink-0">
-        {statusSummary.total_count > 0 && (
-          <StatusSummary summary={statusSummary} className="text-xs" />
-        )}
+        {/* TEMPORARILY DISABLED: Group Status Summary feature */}
 
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={handleFavoriteToggle}
-          className={cn("h-8 w-8 p-0", favorited && "text-yellow-500")}
-          aria-label={favorited ? t("group.unfavorite") : t("group.favorite")}
-        >
-          <Star className={cn("h-4 w-4", favorited && "fill-current")} />
-        </Button>
+        <FavoriteButton groupId={group.id} />
       </div>
     </header>
   );

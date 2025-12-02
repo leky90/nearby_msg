@@ -1,66 +1,55 @@
-import type { ComponentProps, HTMLAttributes } from "react"
-import { tv, type VariantProps } from "tailwind-variants"
+import type { ComponentProps, HTMLAttributes } from "react";
+import { tv } from "tailwind-variants";
 
-import { cn } from "@/shared/lib/utils"
+import { cn } from "@/shared/lib/utils";
 import {
   Avatar,
   AvatarFallback,
   AvatarImage,
-} from "@/shared/components/ui/avatar"
+} from "@/shared/components/ui/avatar";
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
-  from: "user" | "assistant" | "system"
-}
+  from: "user" | "assistant" | "system";
+};
 
 export const Message = ({ className, from, ...props }: MessageProps) => (
   <div
     className={cn(
-      "group flex w-full flex-col items-end gap-2",
-      from === "user" ? "is-user" : "is-assistant items-start",
+      "group flex flex-col gap-2",
+      from === "user" ? "is-user items-end" : "is-assistant items-start w-full",
       className
     )}
     {...props}
   />
-)
+);
 
 const messageContentVariants = tv({
-  base: "is-user:dark flex flex-col gap-2 overflow-hidden rounded-lg text-sm",
-  variants: {
-    variant: {
-      contained: [
-        "max-w-[80%] px-4 py-3",
-        "group-[.is-user]:bg-primary group-[.is-user]:text-primary-foreground",
-        "group-[.is-assistant]:w-full group-[.is-assistant]:max-w-full",
-      ],
-      flat: [
-        "group-[.is-user]:max-w-[80%] group-[.is-user]:bg-secondary group-[.is-user]:px-4 group-[.is-user]:py-3 group-[.is-user]:text-foreground",
-        "group-[.is-assistant]:w-full group-[.is-assistant]:max-w-full",
-      ],
-    },
-  },
-  defaultVariants: {
-    variant: "contained",
-  },
-})
+  base: [
+    "is-user:dark flex flex-col gap-2 overflow-hidden rounded-lg text-sm w-full",
+    "px-2 py-1.5",
+    // Owner messages: colored bubble
+    "group-[.is-user]:bg-primary group-[.is-user]:text-primary-foreground",
+    // Other users: neutral bubble full width
+    "group-[.is-assistant]:bg-muted group-[.is-assistant]:text-foreground group-[.is-assistant]:w-full",
+  ],
+});
 
-export type MessageContentProps = HTMLAttributes<HTMLDivElement> &
-  VariantProps<typeof messageContentVariants>
+export type MessageContentProps = HTMLAttributes<HTMLDivElement>;
 
 export const MessageContent = ({
   children,
   className,
-  variant,
   ...props
 }: MessageContentProps) => (
-  <div className={messageContentVariants({ variant, className })} {...props}>
+  <div className={messageContentVariants({ className })} {...props}>
     {children}
   </div>
-)
+);
 
 export type MessageAvatarProps = ComponentProps<typeof Avatar> & {
-  src: string
-  name?: string
-}
+  src: string;
+  name?: string;
+};
 
 export const MessageAvatar = ({
   src,
@@ -72,4 +61,4 @@ export const MessageAvatar = ({
     <AvatarImage alt="" className="mt-0 mb-0" src={src} />
     <AvatarFallback>{name?.slice(0, 2) || "ME"}</AvatarFallback>
   </Avatar>
-)
+);

@@ -4,13 +4,13 @@ import { getDatabase } from "@/shared/services/db";
 import { getMutationCounts } from '@/features/replication/services/mutation-queue';
 import { triggerImmediateSync } from '@/features/replication/services/replication-sync';
 import {
-    setGroupSyncStatus,
-    setMutationSyncStatus,
-    setMessageSyncStatus,
-    setNetworkStatus,
-    type GroupSyncStatus,
-    type MutationSyncStatus,
-    type MessageSyncStatus,
+  setGroupSyncStatus,
+  setMutationSyncStatus,
+  setMessageSyncStatus,
+  setNetworkStatus,
+  type GroupSyncStatus,
+  type MutationSyncStatus,
+  type MessageSyncStatus,
 } from './slice';
 import { selectIsOnline } from './slice';
 import { log } from "@/shared/lib/logging/logger";
@@ -155,7 +155,7 @@ function* refreshOverallSyncStatus(): Generator<unknown, void, unknown> {
       db.messages.find({ selector: { sync_status: 'pending' } }).exec(),
       db.messages.find({ selector: { sync_status: 'syncing' } }).exec(),
       db.messages.find({ selector: { sync_status: 'failed' } }).exec(),
-    ]) as unknown) as [any[], any[], any[]];
+    ]) as unknown) as [Array<{ id: string }>, Array<{ id: string }>, Array<{ id: string }>];
     
     const messageStatus: MessageSyncStatus = {
       pending: pendingMessages.length,
@@ -217,7 +217,7 @@ function* refreshGroupSyncStatus(groupId: string): Generator<unknown, void, unkn
           sync_status: { $ne: 'synced' },
         },
       })
-      .exec() as unknown) as any[];
+      .exec() as unknown) as Array<{ toJSON: () => { sync_status: string } }>;
     
     const pendingCount = pending.filter((doc: { toJSON: () => { sync_status: string } }) => {
       const data = doc.toJSON();

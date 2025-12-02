@@ -47,6 +47,8 @@ func (s *GroupService) CreateGroup(ctx context.Context, req CreateGroupRequest) 
 		return nil, fmt.Errorf("failed to generate group ID: %w", err)
 	}
 
+	// CreatorDeviceID must be provided when creating a group (cannot be NULL)
+	creatorDeviceID := req.CreatorDeviceID
 	group := &domain.Group{
 		ID:              groupID,
 		Name:            req.Name,
@@ -54,7 +56,7 @@ func (s *GroupService) CreateGroup(ctx context.Context, req CreateGroupRequest) 
 		Latitude:        req.Latitude,
 		Longitude:       req.Longitude,
 		RegionCode:      req.RegionCode,
-		CreatorDeviceID: req.CreatorDeviceID,
+		CreatorDeviceID: &creatorDeviceID, // Convert to *string for nullable field
 	}
 
 	if err := group.Validate(); err != nil {
@@ -156,7 +158,8 @@ func (s *GroupService) UpdateGroup(ctx context.Context, groupID string, deviceID
 	}
 
 	// Check if the device is the creator
-	if group.CreatorDeviceID != deviceID {
+	// Check if group has a creator and if it matches the device ID
+	if group.CreatorDeviceID == nil || *group.CreatorDeviceID != deviceID {
 		return nil, fmt.Errorf("only the creator can update the group")
 	}
 

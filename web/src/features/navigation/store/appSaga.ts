@@ -6,14 +6,14 @@ import { connectWebSocketAction } from '@/features/websocket/store/saga';
 import { fetchDeviceAction } from '@/features/device/store/saga';
 import { getGPSStatus } from '@/features/device/services/device-status';
 import {
-    setInitializationStatus,
-    setOnboardingRequired,
-    setServicesStarted,
-    setGPSStatus,
-    setNetworkStatus,
-    selectInitializationStatus,
-    selectServicesStarted,
-    selectUserStatus,
+  setInitializationStatus,
+  setOnboardingRequired,
+  setServicesStarted,
+  setGPSStatus,
+  setNetworkStatus,
+  selectInitializationStatus,
+  selectServicesStarted,
+  selectUserStatus,
 } from './appSlice';
 import { selectDevice } from '@/features/device/store/slice';
 import { fetchUserStatusAction } from '@/features/status/store/statusSaga';
@@ -67,6 +67,8 @@ function* initApp(): Generator<unknown, void, unknown> {
           // Device has nickname, start services
           yield put({ type: START_SERVICES });
           yield put(setInitializationStatus({ status: 'ready' }));
+          // Set active tab to explore when user logs back in
+          yield put({ type: 'navigation/setActiveTab', payload: 'explore' });
         } else {
           // Device exists but no nickname, needs onboarding
           yield put(setOnboardingRequired(true));

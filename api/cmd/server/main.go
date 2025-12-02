@@ -82,12 +82,19 @@ func main() {
 		deviceService,
 	)
 
+	// Initialize WebSocket service
+	wsService := service.NewWebSocketService(messageService, messageRepo)
+
+	// Start WebSocket service hub
+	go wsService.Run(ctx)
+
 	// Initialize handlers
 	deviceHandler := handler.NewDeviceHandler(deviceService)
 	groupHandler := handler.NewGroupHandler(groupService, favoriteService, statusService, pinService)
 	replicationHandler := handler.NewReplicationHandler(replicationService)
 	statusHandler := handler.NewStatusHandler(statusService)
 	messageHandler := handler.NewMessageHandler(pinService)
+	wsHandler := handler.NewWebSocketHandler(wsService)
 
 	// Get port from environment or use default
 	port := os.Getenv("PORT")
@@ -122,7 +129,15 @@ func main() {
 	// API v1 routes with error handling middleware
 	mux.Handle("/v1/device/register", errorHandler(http.HandlerFunc(deviceHandler.RegisterDevice)))
 	mux.Handle("/v1/device", errorHandler(http.HandlerFunc(deviceHandler.GetDevice)))
-	mux.Handle("/v1/device/", errorHandler(http.HandlerFunc(deviceHandler.UpdateDevice)))
+	mux.Handle("/v1/device/", errorHandler(auth.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPatch {
+			deviceHandler.UpdateDevice(w, r)
+		} else if r.Method == http.MethodDelete {
+			deviceHandler.DeleteDevice(w, r)
+		} else {
+			handler.WriteError(w, fmt.Errorf("method not allowed"), http.StatusMethodNotAllowed)
+		}
+	}))))
 
 	// Group routes
 	mux.Handle("/v1/groups/nearby", errorHandler(http.HandlerFunc(groupHandler.GetNearbyGroups)))
@@ -150,6 +165,9 @@ func main() {
 	}))))
 	// Group status summary route (must be before /v1/groups/ to avoid conflict)
 	mux.Handle("/v1/groups/status-summary", errorHandler(auth.AuthMiddleware(http.HandlerFunc(groupHandler.GetGroupStatusSummary))))
+
+	// WebSocket route (no error middleware needed, handled by WebSocket handler)
+	mux.HandleFunc("/ws/messages", wsHandler.HandleWebSocket)
 
 	server := &http.Server{
 		Addr:    ":" + port,

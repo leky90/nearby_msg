@@ -21,11 +21,11 @@ export default defineConfig({
         target: 'http://localhost:8080',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, '/v1'),
-        configure: (proxy, _options) => {
-          proxy.on('error', (err, _req, _res) => {
+        configure: (proxy) => {
+          proxy.on('error', (err) => {
             console.log('proxy error', err);
           });
-          proxy.on('proxyReq', (proxyReq, req, _res) => {
+          proxy.on('proxyReq', (proxyReq, req) => {
             // Log proxied requests for debugging
             console.log('Proxying request:', req.method, req.url);
             // Ensure Authorization header is forwarded (Vite proxy does this by default, but explicit is better)
@@ -39,9 +39,28 @@ export default defineConfig({
       '/v1': {
         target: 'http://localhost:8080',
         changeOrigin: true,
-        configure: (proxy, _options) => {
-          proxy.on('error', (err, _req, _res) => {
+        configure: (proxy) => {
+          proxy.on('error', (err) => {
             console.log('proxy error', err);
+          });
+        },
+      },
+      // WebSocket proxy for /ws endpoints
+      '/ws': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+        ws: true, // Enable WebSocket proxying
+        configure: (proxy) => {
+          proxy.on('error', (err) => {
+            console.log('WebSocket proxy error', err);
+          });
+          proxy.on('proxyReqWs', (proxyReq, req) => {
+            // Log WebSocket upgrade requests
+            console.log('Proxying WebSocket upgrade:', req.url);
+            // Forward Authorization header if present
+            if (req.headers.authorization) {
+              proxyReq.setHeader('Authorization', req.headers.authorization);
+            }
           });
         },
       },

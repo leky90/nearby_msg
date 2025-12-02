@@ -1,33 +1,23 @@
-import { createBrowserRouter } from 'react-router-dom';
-import { useParams } from 'react-router-dom';
-import { Home } from './pages/Home';
-import { ChatPage } from './pages/ChatPage';
-
-// Wrapper component to get groupId from URL params
-function ChatPageWrapper() {
-  const { groupId } = useParams<{ groupId: string }>();
-  
-  if (!groupId) {
-    return (
-      <div className="flex h-screen items-center justify-center">
-        <p className="text-muted-foreground">Vui lòng chọn nhóm để xem chat</p>
-      </div>
-    );
-  }
-  
-  return <ChatPage groupId={groupId} />;
-}
+import { createBrowserRouter, Navigate } from "react-router-dom";
+import { Home } from "./pages/Home";
+import { ChatPage } from "./pages/ChatPage";
+import { ErrorPage } from "./pages/ErrorPage";
 
 export function createAppRouter() {
   return createBrowserRouter([
     {
-      path: '/',
+      path: "/",
       element: <Home />,
+      errorElement: <ErrorPage />,
     },
     {
-      path: '/chat/:groupId',
-      element: <ChatPageWrapper />,
+      path: "/chat/:groupId",
+      element: <ChatPage />,
+      errorElement: <ErrorPage />,
+    },
+    {
+      path: "*",
+      element: <Navigate to="/" replace />,
     },
   ]);
 }
-

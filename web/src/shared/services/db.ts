@@ -599,9 +599,12 @@ export async function getDatabase(): Promise<NearbyMsgDatabase> {
  * Handles DXE1 errors gracefully when database schema is corrupted
  */
 export async function closeDatabase(): Promise<void> {
+  log.info('[CLOSE_DATABASE] Starting database close');
   if (dbInstance) {
+    log.info('[CLOSE_DATABASE] Database instance exists, removing...');
     try {
       await dbInstance.remove();
+      log.info('[CLOSE_DATABASE] Database instance removed successfully');
     } catch (removeErr) {
       // DXE1 can occur when removing corrupted databases - ignore and continue
       const errCode = removeErr && typeof removeErr === 'object' && 'code' in removeErr
@@ -612,15 +615,20 @@ export async function closeDatabase(): Promise<void> {
         : String(removeErr);
       
       if (errCode === 'DXE1' || errCode === 'DB6' || errMessage.includes('DXE1') || errMessage.includes('DB6')) {
-        log.warn('Error removing database instance (schema mismatch, will use direct IndexedDB deletion)', removeErr);
+        log.warn('[CLOSE_DATABASE] Error removing database instance (schema mismatch, will use direct IndexedDB deletion)', removeErr);
       } else {
         // Re-throw non-schema errors
+        log.error('[CLOSE_DATABASE] Error removing database instance (non-schema error)', removeErr);
         throw removeErr;
       }
     }
     dbInstance = null;
+    log.info('[CLOSE_DATABASE] Database instance reference cleared');
+  } else {
+    log.info('[CLOSE_DATABASE] No database instance to close');
   }
   initPromise = null;
+  log.info('[CLOSE_DATABASE] Database close completed');
 }
 
 /**

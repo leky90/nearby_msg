@@ -31,6 +31,31 @@ export function ExploreFeed({ className }: ExploreFeedProps) {
   const jwtToken = useSelector((state: RootState) => selectJWTToken(state));
   const { groups } = useNearbyGroups();
 
+  // Map basic groups from Redux into minimal GroupDetail objects
+  // Calculate distance for each group if deviceLocation is available
+  // Must be called before any early returns (Rules of Hooks)
+  const groupDetails: GroupDetail[] = useMemo(() => {
+    return groups.map((group) => {
+      let distance: number | null = null;
+      if (deviceLocation) {
+        distance = calculateDistance(
+          deviceLocation.latitude,
+          deviceLocation.longitude,
+          group.latitude,
+          group.longitude
+        );
+      }
+
+      return {
+        group,
+        distance,
+        latestMessagePreview: null,
+        unreadCount: 0,
+        activeMemberCount: 0,
+      };
+    });
+  }, [groups, deviceLocation]);
+
   // Check device created group and pull groups replication when entering explore page
   // Only pull after onboarding is complete (both deviceLocation and jwtToken are available)
   useEffect(() => {
@@ -66,30 +91,6 @@ export function ExploreFeed({ className }: ExploreFeedProps) {
       </>
     );
   }
-
-  // Map basic groups from Redux into minimal GroupDetail objects
-  // Calculate distance for each group if deviceLocation is available
-  const groupDetails: GroupDetail[] = useMemo(() => {
-    return groups.map((group) => {
-      let distance: number | null = null;
-      if (deviceLocation) {
-        distance = calculateDistance(
-          deviceLocation.latitude,
-          deviceLocation.longitude,
-          group.latitude,
-          group.longitude
-        );
-      }
-
-      return {
-        group,
-        distance,
-        latestMessagePreview: null,
-        unreadCount: 0,
-        activeMemberCount: 0,
-      };
-    });
-  }, [groups, deviceLocation]);
 
   return (
     <>

@@ -6,12 +6,17 @@
 import { useEffect, useRef, useMemo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useDispatch, useSelector } from "react-redux";
+import { useParams } from "react-router-dom";
 import type { Message } from "@/shared/domain/message";
 import { SOSMessage } from "./SOSMessage";
 import { MessageBubble } from "./MessageBubble";
 import { getOrCreateDeviceId } from "@/features/device/services/device-storage";
-import { ScrollArea } from "@/shared/components/ui/scroll-area";
 import { Skeleton } from "@/shared/components/ui/skeleton";
+import {
+  Conversation,
+  ConversationContent,
+  ConversationEmptyState,
+} from "@/shared/components/ui/conversation";
 import { cn } from "@/shared/lib/utils";
 import { t } from "@/shared/lib/i18n";
 import type { Device } from "@/shared/domain/device";
@@ -23,16 +28,12 @@ import { fetchDevicesByIdsAction } from "@/features/device/store/saga";
 import { selectDevicesByIds } from "@/features/device/store/slice";
 import type { RootState } from "@/store";
 import { useScreenEnterRefresh } from "@/shared/refresh/useScreenEnterRefresh";
+import { useMessages } from "../hooks/useMessages";
+import { log } from "@/shared/lib/logging/logger";
 
 export interface MessageListProps {
-  /** Messages to display */
-  messages: Message[];
-  /** Group ID */
-  groupId: string;
   /** Callback when message is clicked */
   onMessageClick?: (message: Message) => void;
-  /** Whether messages are loading */
-  isLoading?: boolean;
   /** Message ID to scroll to */
   scrollToMessageId?: string;
 }
@@ -43,15 +44,20 @@ const VIRTUALIZATION_THRESHOLD = 50;
 /**
  * Message List component
  * Displays messages with grouping, date separators, and modern UX
+ * Gets data directly from hooks/Redux to avoid prop drilling
  */
 export function MessageList({
-  messages,
-  groupId: _groupId, // eslint-disable-line @typescript-eslint/no-unused-vars
   onMessageClick,
-  isLoading = false,
   scrollToMessageId,
 }: MessageListProps) {
   const dispatch = useDispatch();
+  const { groupId } = useParams<{ groupId: string }>();
+
+  // Get messages directly from hook
+  const { messages, isLoading } = useMessages({
+    groupId: groupId || "",
+    reactive: true,
+  });
 
   // Trigger a single refresh when the chat screen becomes active.
   useScreenEnterRefresh("chat");
@@ -112,28 +118,62 @@ export function MessageList({
     enabled: shouldVirtualize,
   });
 
-  // Auto-scroll to bottom when new messages arrive
+  // Auto-scroll to bottom when new messages arrive or on initial load
   // Only scroll if user is near bottom to avoid interrupting manual scrolling
-  useEffect(() => {
-    if (!scrollToMessageId && groupedMessages.length > 0) {
-      const shouldAutoScroll = () => {
-        if (!parentRef.current) return false;
-        const { scrollTop, scrollHeight, clientHeight } = parentRef.current;
-        const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
-        // Only auto-scroll if user is within 150px of bottom
-        return distanceFromBottom < 150;
-      };
+  const isInitialMount = useRef(true);
+  const isLoadingMore = useRef(false);
 
-      if (shouldAutoScroll()) {
+  // Handle scroll to top for loading more messages
+  useEffect(() => {
+    const scrollElement = parentRef.current;
+    if (!scrollElement) return;
+
+    const handleScroll = () => {
+      // Check if scrolled to top (within 100px)
+      if (scrollElement.scrollTop < 100 && !isLoadingMore.current) {
+        // TODO: Implement load more messages when scrolling up
+        // For now, just log
+        log.debug("Scrolled to top - should load more messages");
+      }
+    };
+
+    scrollElement.addEventListener("scroll", handleScroll);
+    return () => {
+      scrollElement.removeEventListener("scroll", handleScroll);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!scrollToMessageId && groupedMessages.length > 0 && parentRef.current) {
+      const scrollElement = parentRef.current;
+
+      // Always scroll to bottom on initial mount
+      if (isInitialMount.current) {
+        isInitialMount.current = false;
+        // Use requestAnimationFrame to ensure DOM is ready
+        requestAnimationFrame(() => {
+          if (scrollElement) {
+            scrollElement.scrollTop = scrollElement.scrollHeight;
+          }
+        });
+        return;
+      }
+
+      // Check if user is near bottom (within 150px)
+      const { scrollTop, scrollHeight, clientHeight } = scrollElement;
+      const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+
+      // Only auto-scroll if user is within 150px of bottom
+      if (distanceFromBottom < 150) {
         if (shouldVirtualize && virtualizer) {
           // Scroll to last item in virtualized list
           virtualizer.scrollToIndex(groupedMessages.length - 1, {
             align: "end",
             behavior: "smooth",
           });
-        } else if (parentRef.current) {
+        } else {
           // Scroll to bottom in non-virtualized list
-          parentRef.current.scrollTop = parentRef.current.scrollHeight;
+          scrollElement.scrollTop = scrollElement.scrollHeight;
         }
       }
     }
@@ -194,8 +234,8 @@ export function MessageList({
 
   if (isLoading) {
     return (
-      <ScrollArea className="h-full">
-        <div className="space-y-4 p-4">
+      <Conversation className="h-full">
+        <ConversationContent>
           {[1, 2, 3, 4, 5].map((i) => (
             <div key={i} className={cn("flex", i % 2 === 0 && "justify-end")}>
               <div
@@ -209,8 +249,8 @@ export function MessageList({
               </div>
             </div>
           ))}
-        </div>
-      </ScrollArea>
+        </ConversationContent>
+      </Conversation>
     );
   }
 
@@ -261,7 +301,7 @@ export function MessageList({
           ref={(el) => {
             if (el) messageRefs.current.set(message.id, el);
           }}
-          className={cn("flex", isOwn && "justify-end")}
+          className={cn("flex")}
         >
           <MessageBubble
             message={message}
@@ -277,18 +317,12 @@ export function MessageList({
 
   if (messages.length === 0) {
     return (
-      <ScrollArea className="h-full">
-        <div className="flex h-full items-center justify-center text-center p-4">
-          <div className="space-y-2">
-            <p className="text-muted-foreground text-sm">
-              {t("page.chat.noMessages") || "Chưa có tin nhắn nào"}
-            </p>
-            <p className="text-muted-foreground/70 text-xs">
-              Bắt đầu cuộc trò chuyện bằng cách gửi tin nhắn đầu tiên
-            </p>
-          </div>
-        </div>
-      </ScrollArea>
+      <Conversation className="h-full">
+        <ConversationEmptyState
+          title={t("page.chat.noMessages") || "Chưa có tin nhắn nào"}
+          description="Bắt đầu cuộc trò chuyện bằng cách gửi tin nhắn đầu tiên"
+        />
+      </Conversation>
     );
   }
 
@@ -297,10 +331,10 @@ export function MessageList({
     const virtualItems = virtualizer.getVirtualItems();
 
     return (
-      <ScrollArea className="h-full">
+      <div className="h-full relative overflow-hidden">
         <div
           ref={parentRef}
-          className="h-full overflow-auto"
+          className="h-full overflow-y-auto overflow-x-hidden"
           style={{ contain: "strict" }}
         >
           <div
@@ -318,7 +352,7 @@ export function MessageList({
                 width: "100%",
                 transform: `translateY(${virtualItems[0]?.start ?? 0}px)`,
               }}
-              className="space-y-1 p-4"
+              className="space-y-1 p-4 flex flex-col"
             >
               {virtualItems.map((virtualItem) => {
                 const grouped = groupedMessages[virtualItem.index];
@@ -338,16 +372,19 @@ export function MessageList({
             </div>
           </div>
         </div>
-      </ScrollArea>
+      </div>
     );
   }
 
   // Non-virtualized rendering for smaller lists
   return (
-    <ScrollArea className="h-full">
-      <div ref={parentRef} className="space-y-1 p-4">
+    <div className="h-full relative overflow-hidden">
+      <div
+        ref={parentRef}
+        className="h-full overflow-y-auto overflow-x-hidden p-4 space-y-4 flex flex-col"
+      >
         {groupedMessages.map((grouped) => renderMessage(grouped))}
       </div>
-    </ScrollArea>
+    </div>
   );
 }

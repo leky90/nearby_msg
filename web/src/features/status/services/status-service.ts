@@ -4,7 +4,6 @@
  */
 
 import type { UserStatus, StatusType } from "@/shared/domain/user_status";
-import { get } from '@/shared/services/api';
 import { getDatabase } from '@/shared/services/db';
 import { getOrCreateDeviceId } from '@/features/device/services/device-storage';
 import { queueMutation } from '@/features/replication/services/mutation-queue';
@@ -79,53 +78,26 @@ export async function updateStatus(
 
 /**
  * Query function for fetching status (used by Redux Saga)
- * Reads from RxDB first, then falls back to API if not found
+ * RxDB-only approach: reads from local cache only
+ * Note: Caller should trigger pull replication before calling this if cache might be empty.
  * @returns User status or null if not set
  */
 export async function fetchStatus(): Promise<UserStatus | null> {
   const deviceId = getOrCreateDeviceId();
 
-  // Try RxDB first (instant, offline support)
-  try {
-    const db = await getDatabase();
-    const cached = await db.user_status
-      .findOne({ selector: { device_id: deviceId } })
-      .exec();
-    if (cached) {
-      return cached.toJSON() as UserStatus;
-    }
-  } catch {
-    // RxDB not available, continue to API
+  // RxDB-only: Read from cache (synced via replication)
+  const db = await getDatabase();
+  const cached = await db.user_status
+    .findOne({ selector: { device_id: deviceId } })
+    .exec();
+  
+  if (cached) {
+    return cached.toJSON() as UserStatus;
   }
-
-  // Fallback to API if not in cache
-  try {
-    const response = await get<UserStatus>('/status');
-    // Store in RxDB for next time
-    if (response) {
-      const db = await getDatabase();
-      await db.user_status.upsert(response);
-    }
-    return response;
-  } catch (err) {
-    // If 404 (not found) or 401 (unauthorized - device not registered yet), return null
-    // 404 is expected when user hasn't set a status yet - don't treat as error
-    // 401 is expected when device hasn't been registered - don't treat as error
-    if (
-      err &&
-      typeof err === 'object' &&
-      'status' in err &&
-      ((err as { status: number }).status === 404 ||
-        (err as { status: number }).status === 401)
-    ) {
-      // Silently return null - this is expected behavior
-      // 404 means user hasn't set status yet
-      // 401 means device not registered yet
-      return null;
-    }
-    // Only throw for unexpected errors
-    throw err;
-  }
+  
+  // Not found in RxDB - return null
+  // Caller should trigger pull replication to fetch from server
+  return null;
 }
 
 /**
@@ -212,19 +184,14 @@ export async function getGroupStatusSummary(groupId: string): Promise<StatusSumm
     };
   } catch (err) {
     log.error('Failed to calculate status summary from RxDB', err, { groupId });
-    // Fallback to API if RxDB calculation fails
-    try {
-      const response = await get<StatusSummary>(`/groups/${groupId}/status-summary`);
-      return response;
-    } catch {
-      // Final fallback to empty summary
-      return {
-        safe_count: 0,
-        need_help_count: 0,
-        cannot_contact_count: 0,
-        total_count: 0,
-      };
-    }
+    // Return empty summary if calculation fails
+    // Caller should trigger pull replication to ensure data is fresh
+    return {
+      safe_count: 0,
+      need_help_count: 0,
+      cannot_contact_count: 0,
+      total_count: 0,
+    };
   }
 }
 

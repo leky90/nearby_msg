@@ -7,9 +7,9 @@ import type { Message } from "@/shared/domain/message";
 import { t } from "@/shared/lib/i18n";
 import { cn } from "@/shared/lib/utils";
 import {
-  Message as TakiMessage,
+  Message as MessageComponent,
   MessageContent,
-} from "@/shared/components/ai-elements/message";
+} from "@/shared/components/ui/message";
 
 export interface SOSMessageProps {
   /** SOS message to display */
@@ -49,14 +49,14 @@ export function SOSMessage({ message, isOwn = false }: SOSMessageProps) {
   const sosIcon = SOS_TYPE_ICONS[sosType] || "🚨";
 
   return (
-    <TakiMessage
+    <MessageComponent
       from={isOwn ? "user" : "assistant"}
       className={cn(
         "rounded-lg border-2 border-sos bg-sos/10 shadow-lg",
         isOwn && "border-sos bg-sos/20"
       )}
     >
-      <MessageContent variant="flat" className="p-4">
+      <MessageContent className="p-4">
         <div className="flex items-center gap-2 mb-2">
           <span className="text-2xl">{sosIcon}</span>
           <span className="font-bold text-sos text-heading-2 leading-heading-2">
@@ -73,6 +73,6 @@ export function SOSMessage({ message, isOwn = false }: SOSMessageProps) {
           {new Date(message.created_at).toLocaleTimeString()}
         </div>
       </MessageContent>
-    </TakiMessage>
+    </MessageComponent>
   );
 }

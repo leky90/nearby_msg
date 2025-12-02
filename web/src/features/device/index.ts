@@ -3,9 +3,6 @@
  * Public API exports for the device feature
  */
 
-// Hooks
-export { useDevice } from "./hooks/useDevice";
-
 // Services
 export { registerDeviceMutation, fetchDevice, updateDeviceNickname } from "./services/device-service";
 export { getOrCreateDeviceId, setDeviceId, getDeviceId } from "./services/device-storage";

@@ -9,11 +9,18 @@ export type MutationType =
   | 'add_favorite'
   | 'remove_favorite'
   | 'update_status'
-  | 'update_nickname';
+  | 'update_nickname'
+  | 'pin_message'
+  | 'unpin_message';
 
 export type SyncStatus = 'pending' | 'syncing' | 'synced' | 'failed';
 
-export type Collection = 'groups' | 'favorite_groups' | 'user_status' | 'devices';
+export type Collection =
+  | 'groups'
+  | 'favorite_groups'
+  | 'user_status'
+  | 'devices'
+  | 'pinned_messages';
 
 export interface Mutation {
   id: string; // Unique identifier (generated client-side)
@@ -63,6 +70,8 @@ export function isValidMutationType(type: string): type is MutationType {
     'remove_favorite',
     'update_status',
     'update_nickname',
+    'pin_message',
+    'unpin_message',
   ].includes(type);
 }
 
@@ -70,7 +79,13 @@ export function isValidMutationType(type: string): type is MutationType {
  * Validates collection name
  */
 export function isValidCollection(collection: string): collection is Collection {
-  return ['groups', 'favorite_groups', 'user_status', 'devices'].includes(collection);
+  return [
+    'groups',
+    'favorite_groups',
+    'user_status',
+    'devices',
+    'pinned_messages',
+  ].includes(collection);
 }
 
 /**

@@ -104,3 +104,29 @@ func (h *DeviceHandler) UpdateDevice(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// DeleteDevice handles DELETE /device/{id}
+func (h *DeviceHandler) DeleteDevice(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		WriteError(w, fmt.Errorf("method not allowed"), http.StatusMethodNotAllowed)
+		return
+	}
+
+	ctx := r.Context()
+	deviceID, ok := auth.GetDeviceIDFromContext(ctx)
+	if !ok {
+		WriteError(w, fmt.Errorf("unauthorized"), http.StatusUnauthorized)
+		return
+	}
+
+	if err := h.deviceService.DeleteDevice(ctx, deviceID); err != nil {
+		if err.Error() == "device not found" {
+			WriteError(w, err, http.StatusNotFound)
+			return
+		}
+		WriteError(w, err, http.StatusBadRequest)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}

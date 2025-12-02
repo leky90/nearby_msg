@@ -4,7 +4,7 @@
  * Network-aware: pauses sync when offline, resumes when online
  */
 
-import { stopMessageSync, triggerImmediateSync } from './replication-sync';
+import { triggerImmediateSync } from './replication-sync';
 import { migrateLegacyCheckpoint } from './replication-sync';
 import { getNetworkStatus, subscribeToNetworkStatus } from '@/shared/services/network-status';
 import { log } from "@/shared/lib/logging/logger";
@@ -15,15 +15,11 @@ let replicationStarted = false;
 let visibilityHandler: (() => void) | null = null;
 let networkStatusUnsubscribe: (() => void) | null = null;
 
-export type ReplicationOptions = {
-  intervalMs?: number;
-};
-
 /**
  * Initializes replication once per session.
  * Only starts if device has been registered (has token).
  */
-export function startReplication(options: ReplicationOptions = {}): void {
+export function startReplication(): void {
   if (replicationStarted) {
     return;
   }
@@ -49,9 +45,8 @@ export function startReplication(options: ReplicationOptions = {}): void {
   // Monitor network status changes
   networkStatusUnsubscribe = subscribeToNetworkStatus((status) => {
     if (status === 'offline') {
-      // Pause sync when offline
-      stopMessageSync();
-      log.debug('Replication paused: Network offline');
+      // Sync is handled via WebSocket, no action needed when offline
+      log.debug('Network offline - WebSocket will handle reconnection');
     } else if (status === 'online') {
       // Trigger a one-shot sync when network comes back
       setTimeout(() => {
@@ -79,19 +74,23 @@ export function startReplication(options: ReplicationOptions = {}): void {
  * Stops replication and cleans up listeners.
  */
 export function stopReplication(): void {
+  log.info('[STOP_REPLICATION] Starting replication stop', { replicationStarted });
   if (!replicationStarted) {
+    log.info('[STOP_REPLICATION] Replication not started, skipping');
     return;
   }
 
-  stopMessageSync();
   if (visibilityHandler) {
+    log.info('[STOP_REPLICATION] Removing visibility change handler');
     document.removeEventListener('visibilitychange', visibilityHandler);
     visibilityHandler = null;
   }
   if (networkStatusUnsubscribe) {
+    log.info('[STOP_REPLICATION] Unsubscribing from network status');
     networkStatusUnsubscribe();
     networkStatusUnsubscribe = null;
   }
   replicationStarted = false;
+  log.info('[STOP_REPLICATION] Replication stopped successfully');
 }
 

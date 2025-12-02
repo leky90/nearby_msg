@@ -3,16 +3,13 @@
  * Displays current network connectivity status
  */
 
-import { useState, useEffect } from "react";
 import { Wifi, WifiOff, Gauge } from "lucide-react";
+import { useSelector } from "react-redux";
 import { Badge } from "@/shared/components/ui/badge";
 import { cn } from "@/shared/lib/utils";
-import {
-  getNetworkStatus,
-  subscribeToNetworkStatus,
-  type NetworkStatus,
-} from "@/shared/services/network-status";
+import { selectNetworkStatus } from "@/features/navigation/store/appSlice";
 import { t } from "@/shared/lib/i18n";
+import type { RootState } from "@/store";
 
 export interface ConnectivityStatusProps {
   /** Custom className */
@@ -26,20 +23,14 @@ export interface ConnectivityStatusProps {
 /**
  * Connectivity Status component
  * Shows current network connectivity with icon and optional label
+ * Reads network status from Redux store (managed by appSaga)
  */
 export function ConnectivityStatus({
   className = "",
   showLabel = true,
   size = "md",
 }: ConnectivityStatusProps) {
-  const [status, setStatus] = useState<NetworkStatus>(getNetworkStatus());
-
-  useEffect(() => {
-    const unsubscribe = subscribeToNetworkStatus((newStatus) => {
-      setStatus(newStatus);
-    });
-    return unsubscribe;
-  }, []);
+  const status = useSelector((state: RootState) => selectNetworkStatus(state));
 
   const getIcon = () => {
     switch (status) {

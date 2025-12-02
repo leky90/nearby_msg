@@ -7,23 +7,32 @@ import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { Edit2, Check, X } from "lucide-react";
-import { useDevice } from "@/features/device/hooks/useDevice";
 import { useDispatch, useSelector } from "react-redux";
 import { updateDeviceAction } from "@/features/device/store/saga";
 import {
+  selectDevice,
   selectDeviceLoading,
   selectDeviceError,
 } from "@/features/device/store/slice";
 import { Input } from "@/shared/components/ui/input";
-import { showToast } from "@/shared/utils/toast";
 import type { RootState } from "@/store";
 import {
   nicknameSchema,
   type NicknameFormData,
 } from "../schemas/nickname.schema";
+import { useFormUpdateHandler } from "@/shared/hooks/useFormUpdateHandler";
+
+// Constants
+const BUTTON_BASE_CLASSES =
+  "h-9 w-9 p-0 inline-flex items-center justify-center rounded-md hover:bg-accent hover:text-accent-foreground transition-colors";
+const BUTTON_DISABLED_CLASSES =
+  "disabled:opacity-50 disabled:pointer-events-none";
 
 export function NicknameSection() {
-  const { device, loading: isLoadingDevice } = useDevice();
+  const device = useSelector((state: RootState) => selectDevice(state));
+  const isLoadingDevice = useSelector((state: RootState) =>
+    selectDeviceLoading(state)
+  );
   const dispatch = useDispatch();
   const [isEditingNickname, setIsEditingNickname] = useState(false);
 
@@ -33,7 +42,7 @@ export function NicknameSection() {
     defaultValues: {
       nickname: device?.nickname || "",
     },
-    mode: "onBlur", // Validate on blur for better UX in inline editing
+    mode: "onBlur",
   });
 
   // Get loading and error states from Redux
@@ -44,42 +53,38 @@ export function NicknameSection() {
     selectDeviceError(state)
   );
 
-  // Update form when device nickname changes in Redux
+  // Handle update success/error using custom hook (SOLID - Single Responsibility)
+  const { handleSubmit: handleUpdateSubmit, handleCancel: handleUpdateCancel } =
+    useFormUpdateHandler({
+      form,
+      isEditing: isEditingNickname,
+      isUpdating,
+      updateError,
+      currentValue: device?.nickname,
+      onCloseEdit: () => setIsEditingNickname(false),
+      successMessage: "Đã cập nhật tên thành công",
+    });
+
+  // Update form when device nickname changes in Redux (only when not editing)
   useEffect(() => {
     if (device?.nickname && !isEditingNickname) {
-      form.reset({ nickname: device.nickname });
+      const currentFormValue = form.getValues("nickname");
+      if (currentFormValue !== device.nickname) {
+        form.reset({ nickname: device.nickname });
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [device?.nickname, isEditingNickname]);
 
-  // Handle update errors from Redux
-  useEffect(() => {
-    if (updateError && isEditingNickname) {
-      showToast(updateError, "error");
-      form.setError("root", { message: updateError });
-      setIsEditingNickname(false);
-    } else if (
-      !isUpdating &&
-      isEditingNickname &&
-      !updateError &&
-      device?.nickname === form.getValues("nickname")?.trim()
-    ) {
-      // Update succeeded
-      showToast("Đã cập nhật tên thành công", "success");
-      setIsEditingNickname(false);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [updateError, isUpdating, isEditingNickname, device?.nickname]);
-
   const onSubmit = (data: NicknameFormData) => {
-    // Dispatch Redux action - saga handles the update
-    dispatch(updateDeviceAction({ nickname: data.nickname.trim() }));
-    // Don't close editing mode immediately - wait for success/error from Redux
+    const trimmedNickname = handleUpdateSubmit(data.nickname);
+    dispatch(updateDeviceAction({ nickname: trimmedNickname }));
   };
 
   const handleCancelEdit = () => {
     form.reset({ nickname: device?.nickname || "" });
     setIsEditingNickname(false);
+    handleUpdateCancel();
   };
 
   return (
@@ -119,7 +124,7 @@ export function NicknameSection() {
           <button
             type="submit"
             disabled={isUpdating || !form.formState.isValid}
-            className="h-9 w-9 p-0 inline-flex items-center justify-center rounded-md hover:bg-accent hover:text-accent-foreground disabled:opacity-50 disabled:pointer-events-none transition-colors"
+            className={`${BUTTON_BASE_CLASSES} ${BUTTON_DISABLED_CLASSES}`}
             aria-label="Lưu"
           >
             <Check className="h-4 w-4" />
@@ -128,7 +133,7 @@ export function NicknameSection() {
             type="button"
             onClick={handleCancelEdit}
             disabled={isUpdating}
-            className="h-9 w-9 p-0 inline-flex items-center justify-center rounded-md hover:bg-accent hover:text-accent-foreground disabled:opacity-50 disabled:pointer-events-none transition-colors"
+            className={`${BUTTON_BASE_CLASSES} ${BUTTON_DISABLED_CLASSES}`}
             aria-label="Hủy"
           >
             <X className="h-4 w-4" />
@@ -144,7 +149,7 @@ export function NicknameSection() {
           <button
             type="button"
             onClick={() => setIsEditingNickname(true)}
-            className="h-9 w-9 p-0 inline-flex items-center justify-center rounded-md hover:bg-accent hover:text-accent-foreground transition-colors"
+            className={BUTTON_BASE_CLASSES}
             aria-label="Chỉnh sửa tên"
           >
             <Edit2 className="h-4 w-4" />

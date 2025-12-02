@@ -182,7 +182,7 @@ export function PinnedMessagesSheet({
                       )}
                       onClick={() => handleMessageClick(pin.message_id)}
                     >
-                      <MessageBubble message={message} showPinButton={false} />
+                      <MessageBubble message={message} />
                     </div>
                     {onMessageClick && (
                       <Button

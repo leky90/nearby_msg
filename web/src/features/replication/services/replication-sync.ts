@@ -731,17 +731,6 @@ async function syncCycle(): Promise<void> {
   }
 }
 
-/**
- * Legacy no-op functions kept for compatibility.
- * Interval-based sync has been removed; all syncs are now one-shot via triggerImmediateSync().
- */
-export function startMessageSync(): void {
-  // Intentionally empty – interval sync disabled.
-}
-
-export function stopMessageSync(): void {
-  // Intentionally empty – interval sync disabled.
-}
 
 /**
  * Forces an immediate sync attempt.
@@ -750,18 +739,6 @@ export async function triggerImmediateSync(): Promise<void> {
   await syncCycle();
 }
 
-/**
- * Pulls documents from specific collections
- * @param collections Array of collection names to sync
- * @param groupIds Optional array of group IDs to filter messages
- * @deprecated Use pullDocuments directly instead
- */
-export async function pullDocumentsFromCollections(
-  collections: string[],
-  groupIds?: string[]
-): Promise<void> {
-  await pullDocuments(collections, groupIds);
-}
 
 // Export pullDocuments for direct use
 export { pullDocuments };

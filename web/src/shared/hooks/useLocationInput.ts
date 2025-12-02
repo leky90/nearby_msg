@@ -3,13 +3,13 @@
  * Handles GPS location, Google Maps URL parsing, and manual input
  */
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback } from "react";
 import { getCurrentLocation, isGeolocationAvailable } from "@/features/groups/services/location-service";
 import { parseGoogleMapsUrl } from "@/shared/utils/google-maps";
 import { reverseGeocode } from "@/features/groups/services/geocoding-service";
 import { useSelector, useDispatch } from "react-redux";
 import { selectDeviceLocation, setDeviceLocation, updateDeviceLocationAddress } from "@/features/navigation/store/appSlice";
-import type { RootState } from "@/store";
+import type { RootState, AppDispatch } from "@/store";
 import { showToast } from "@/shared/utils/toast";
 import { log } from "@/shared/lib/logging/logger";
 
@@ -23,34 +23,77 @@ export interface UseLocationInputOptions {
   onLocationSet?: (location: Location) => void;
 }
 
+// Constants
+const LOCATION_CHANGE_THRESHOLD = 0.0001;
+
+// Helper functions (DRY principle)
+const createDeviceLocationData = (location: Location) => ({
+  latitude: location.latitude,
+  longitude: location.longitude,
+  updatedAt: new Date().toISOString(),
+});
+
+const hasLocationChanged = (
+  oldLocation: { latitude: number; longitude: number } | null,
+  newLocation: Location
+): boolean => {
+  if (!oldLocation) return true;
+  return (
+    Math.abs(oldLocation.latitude - newLocation.latitude) > LOCATION_CHANGE_THRESHOLD ||
+    Math.abs(oldLocation.longitude - newLocation.longitude) > LOCATION_CHANGE_THRESHOLD
+  );
+};
+
+// Helper function - not a hook, so we use a simple function type
+const updateLocationWithGeocoding = (
+  location: Location,
+  dispatch: AppDispatch,
+  onLocationSet?: (location: Location) => void
+) => {
+  const deviceLocationData = createDeviceLocationData(location);
+  dispatch(setDeviceLocation(deviceLocationData));
+
+  // Try to get address via reverse geocoding (fire-and-forget)
+  reverseGeocode(location.latitude, location.longitude)
+    .then((address) => {
+      if (address) {
+        dispatch(updateDeviceLocationAddress(address));
+      }
+    })
+    .catch((err) => {
+      log.error("Failed to reverse geocode", err, {
+        latitude: location.latitude,
+        longitude: location.longitude,
+      });
+    });
+
+  onLocationSet?.(location);
+};
+
 export function useLocationInput(options: UseLocationInputOptions = {}) {
   const {
     onLocationSet,
   } = options;
 
-  const dispatch = useDispatch();
+  const dispatch = useDispatch<AppDispatch>();
   const deviceLocation = useSelector((state: RootState) => selectDeviceLocation(state));
-  const [location, setLocation] = useState<Location | null>(
-    deviceLocation ? { latitude: deviceLocation.latitude, longitude: deviceLocation.longitude } : null
-  );
+  
+  // Derive location from Redux state instead of maintaining local state
+  const location: Location | null = deviceLocation
+    ? { latitude: deviceLocation.latitude, longitude: deviceLocation.longitude }
+    : null;
+  
   const [isLoadingLocation, setIsLoadingLocation] = useState(false);
   const [showManualInput, setShowManualInput] = useState(false);
   const [googleMapsUrl, setGoogleMapsUrl] = useState("");
   const [isParsingUrl, setIsParsingUrl] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
 
-  // Sync with app store on mount (only if location is not explicitly set to null)
-  // This allows reset() to work properly
-  const [hasBeenReset, setHasBeenReset] = useState(false);
-  
-  useEffect(() => {
-    if (deviceLocation && !location && !hasBeenReset) {
-      setLocation({
-        latitude: deviceLocation.latitude,
-        longitude: deviceLocation.longitude,
-      });
+  const clearLocation = useCallback(() => {
+    if (deviceLocation) {
+      dispatch(setDeviceLocation(null));
     }
-  }, [deviceLocation, location, hasBeenReset]);
+  }, [deviceLocation, dispatch]);
 
   const handleRequestGPS = useCallback(async (showSuccessToast = true) => {
     if (!isGeolocationAvailable()) {
@@ -64,58 +107,28 @@ export function useLocationInput(options: UseLocationInputOptions = {}) {
 
     try {
       const loc = await getCurrentLocation();
-      if (loc) {
-        const newLocation = {
-          latitude: loc.latitude,
-          longitude: loc.longitude,
-        };
-        
-        // Check if location actually changed (to avoid unnecessary toasts)
-        const locationChanged = 
-          !deviceLocation ||
-          Math.abs(deviceLocation.latitude - newLocation.latitude) > 0.0001 ||
-          Math.abs(deviceLocation.longitude - newLocation.longitude) > 0.0001;
-        
-        setLocation(newLocation);
-        setShowManualInput(false);
-        
-        // Update app store (always sync to app store)
-        const deviceLocationData = {
-          latitude: newLocation.latitude,
-          longitude: newLocation.longitude,
-          updatedAt: new Date().toISOString(),
-        };
-        dispatch(setDeviceLocation(deviceLocationData));
-        
-        // Try to get address via reverse geocoding
-        reverseGeocode(newLocation.latitude, newLocation.longitude)
-          .then((address) => {
-            if (address) {
-              dispatch(updateDeviceLocationAddress(address));
-            }
-          })
-          .catch((err) => {
-            log.error("Failed to reverse geocode", err, { latitude: newLocation.latitude, longitude: newLocation.longitude });
-          });
-        
-        onLocationSet?.(newLocation);
-        
-        // Only show toast if location actually changed AND showSuccessToast is true
-        // This prevents duplicate toasts when called from multiple places
-        if (locationChanged && showSuccessToast) {
-          showToast("Đã cập nhật vị trí từ GPS thành công!", "success");
-        }
-      } else {
-        setLocationError(
-          "Không thể lấy vị trí. Vui lòng thử lại hoặc nhập thủ công."
-        );
+      if (!loc) {
+        setLocationError("Không thể lấy vị trí. Vui lòng thử lại hoặc nhập thủ công.");
         setShowManualInput(true);
+        return;
+      }
+
+      const newLocation: Location = {
+        latitude: loc.latitude,
+        longitude: loc.longitude,
+      };
+
+      const locationChanged = hasLocationChanged(deviceLocation, newLocation);
+      setShowManualInput(false);
+
+      updateLocationWithGeocoding(newLocation, dispatch, onLocationSet);
+
+      if (locationChanged && showSuccessToast) {
+        showToast("Đã cập nhật vị trí từ GPS thành công!", "success");
       }
     } catch (err) {
       log.error("Failed to get GPS location", err);
-      setLocationError(
-        "Lỗi khi lấy vị trí từ GPS. Vui lòng thử lại hoặc nhập thủ công."
-      );
+      setLocationError("Lỗi khi lấy vị trí từ GPS. Vui lòng thử lại hoặc nhập thủ công.");
       setShowManualInput(true);
     } finally {
       setIsLoadingLocation(false);
@@ -125,8 +138,8 @@ export function useLocationInput(options: UseLocationInputOptions = {}) {
   const handleGoogleMapsUrlChange = useCallback((value: string) => {
     setGoogleMapsUrl(value);
     setLocationError(null);
-    if (location) setLocation(null);
-  }, [location]);
+    clearLocation();
+  }, [clearLocation]);
 
   const handleParseGoogleMapsUrl = useCallback(async () => {
     if (!googleMapsUrl.trim()) {
@@ -136,69 +149,43 @@ export function useLocationInput(options: UseLocationInputOptions = {}) {
 
     setIsParsingUrl(true);
     setLocationError(null);
-    if (location) setLocation(null);
+    clearLocation();
 
     try {
       const parsed = parseGoogleMapsUrl(googleMapsUrl);
-      if (parsed) {
-        setLocation(parsed);
-        
-        // Update app store (always sync to app store)
-        const deviceLocationData = {
-          latitude: parsed.latitude,
-          longitude: parsed.longitude,
-          updatedAt: new Date().toISOString(),
-        };
-        dispatch(setDeviceLocation(deviceLocationData));
-        
-        // Try to get address via reverse geocoding
-        reverseGeocode(parsed.latitude, parsed.longitude)
-          .then((address) => {
-            if (address) {
-              dispatch(updateDeviceLocationAddress(address));
-            }
-          })
-          .catch((err) => {
-            log.error("Failed to reverse geocode", err, { latitude: parsed.latitude, longitude: parsed.longitude });
-          });
-        
-        onLocationSet?.(parsed);
-        showToast("Đã cập nhật tọa độ từ link Google Maps thành công!", "success");
-        setShowManualInput(false);
-        setGoogleMapsUrl("");
-      } else {
+      if (!parsed) {
         setLocationError(
           "Không thể trích xuất tọa độ từ link. Vui lòng kiểm tra định dạng hoặc nhập thủ công."
         );
-        setLocation(null);
+        return;
       }
+
+      updateLocationWithGeocoding(parsed, dispatch, onLocationSet);
+      showToast("Đã cập nhật tọa độ từ link Google Maps thành công!", "success");
+      setShowManualInput(false);
+      setGoogleMapsUrl("");
     } catch (err) {
       log.error("Failed to parse Google Maps URL", err, { url: googleMapsUrl });
       setLocationError("Lỗi khi xử lý link. Vui lòng thử lại.");
-      setLocation(null);
     } finally {
       setIsParsingUrl(false);
     }
-  }, [googleMapsUrl, location, onLocationSet, dispatch]);
+  }, [googleMapsUrl, clearLocation, onLocationSet, dispatch]);
 
   const handleShowManualInput = useCallback(() => {
     setShowManualInput(true);
-    setLocation(null);
+    clearLocation();
     setGoogleMapsUrl("");
-  }, []);
+  }, [clearLocation]);
 
   const reset = useCallback(() => {
-    setLocation(null);
     setShowManualInput(false);
     setGoogleMapsUrl("");
     setLocationError(null);
     setIsLoadingLocation(false);
     setIsParsingUrl(false);
-    setHasBeenReset(true);
-    
-    // Clear from app store
-    dispatch(setDeviceLocation(null));
-  }, [dispatch]);
+    clearLocation();
+  }, [clearLocation]);
 
   return {
     location,
@@ -207,7 +194,6 @@ export function useLocationInput(options: UseLocationInputOptions = {}) {
     googleMapsUrl,
     isParsingUrl,
     locationError,
-    setLocation,
     setShowManualInput,
     handleRequestGPS,
     handleGoogleMapsUrlChange,

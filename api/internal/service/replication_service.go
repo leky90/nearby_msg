@@ -274,7 +274,7 @@ func (s *ReplicationService) PushMutations(ctx context.Context, deviceID string,
 					Latitude:        *groupMut.Latitude,
 					Longitude:       *groupMut.Longitude,
 					RegionCode:      groupMut.RegionCode,
-					CreatorDeviceID: groupMut.CreatorDeviceID,
+					CreatorDeviceID: groupMut.CreatorDeviceID, // string from mutation, will be converted to *string in CreateGroup
 				}
 				// Note: Server will generate its own ID, ignoring client-provided ID
 				// Client's optimistic ID will be replaced during sync

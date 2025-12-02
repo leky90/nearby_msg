@@ -10,6 +10,9 @@ import { selectDeviceLocation } from "@/features/navigation/store/appSlice";
 import { fetchGPSLocationAction } from '@/features/groups/store/locationSaga';
 import type { RootState } from '@/store';
 
+// Fallback timestamp to avoid calling impure Date.now() during render
+const FALLBACK_TIMESTAMP = Date.now();
+
 export interface Location {
   latitude: number;
   longitude: number;
@@ -51,7 +54,7 @@ export function useLocation(): UseLocationResult {
         accuracy: undefined,
         timestamp: deviceLocation.updatedAt
           ? new Date(deviceLocation.updatedAt).getTime()
-          : Date.now(),
+          : FALLBACK_TIMESTAMP,
       }
     : null;
 

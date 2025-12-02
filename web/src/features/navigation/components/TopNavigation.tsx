@@ -1,6 +1,5 @@
 import { ConnectivityStatus } from "@/shared/components/ConnectivityStatus";
 import { DeviceStatus } from "@/shared/components/DeviceStatus";
-import { WebSocketStatusIndicator } from "@/features/websocket/components/WebSocketStatusIndicator";
 import { cn } from "@/shared/lib/utils";
 
 interface TopNavigationProps {
@@ -23,7 +22,6 @@ export function TopNavigation({ className }: TopNavigationProps) {
         {/* Network Status - Left */}
         <div className="flex items-center min-w-0 shrink-0 gap-2">
           <ConnectivityStatus size="sm" />
-          <WebSocketStatusIndicator />
         </div>
 
         {/* Spacer */}

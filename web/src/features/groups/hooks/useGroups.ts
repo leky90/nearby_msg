@@ -9,8 +9,8 @@ import { useMemo } from 'react';
 import { useSelector } from 'react-redux';
 import type { Group } from "@/shared/domain/group";
 import {
-    selectNearbyGroupsLoading,
-    selectGroupsByIds
+  selectNearbyGroupsLoading,
+  selectGroupsByIds
 } from "@/features/groups/store/slice";
 import type { RootState } from "@/store";
 
@@ -38,6 +38,7 @@ export interface UseGroupsResult {
  */
 export function useGroups({ groupIds }: UseGroupsOptions): UseGroupsResult {
   // Memoize groupIds array to prevent infinite loops
+  // Create stable key from array contents
   const groupIdsKey = groupIds.join(',');
   const memoizedGroupIds = useMemo(() => groupIds, [groupIdsKey]);
   

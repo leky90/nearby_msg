@@ -6,20 +6,20 @@
 import { call, put, takeEvery, take, select, fork, cancel } from 'redux-saga/effects';
 import type { Message } from "@/shared/domain/message";
 import { eventChannel, type EventChannel, type Task } from 'redux-saga';
-import type { WebSocketMessage } from "@/features/websocket/services/websocket";
+import type { WebSocketMessage, NewMessagePayload, MessageSentPayload, ErrorPayload } from "@/features/websocket/services/websocket";
 import { createWebSocketService, getWebSocketUrl, type WebSocketService } from "@/features/websocket/services/websocket";
 import { updateMessageSyncStatus } from "@/shared/services/db";
 import {
-    setWebSocketStatus,
-    setWebSocketError,
-    setConnectedAt,
-    setDisconnectedAt,
-    incrementReconnectAttempts,
-    resetReconnectAttempts,
-    subscribeToGroup,
-    unsubscribeFromGroup,
-    setWebSocketUrl,
-    selectSubscribedGroupIds,
+  setWebSocketStatus,
+  setWebSocketError,
+  setConnectedAt,
+  setDisconnectedAt,
+  incrementReconnectAttempts,
+  resetReconnectAttempts,
+  subscribeToGroup,
+  unsubscribeFromGroup,
+  setWebSocketUrl,
+  selectSubscribedGroupIds,
 } from './slice';
 import { selectJWTToken } from '@/features/device/store/slice';
 import { receiveMessageAction } from '@/features/messages/store/saga';
@@ -109,36 +109,71 @@ function* handleConnectWebSocket(): Generator<unknown, void, unknown> {
     }
     
     const service = wsService; // Capture for type narrowing
+    
+    // Set up callbacks BEFORE connecting
+    // onOpen callback will update status when connection is actually established
     service.setCallbacks({
       onOpen: () => {
-        log.info('WebSocket connected');
+        log.info('WebSocket connected - updating status');
+        // Update status when connection is actually established
+        // Use put directly in callback (saga will handle it)
+        // Note: We need to dispatch action, but we're in a callback
+        // The status will be updated via the promise resolution below
       },
       onClose: (event) => {
         log.info('WebSocket closed', { code: event.code, reason: event.reason });
+        // Update status when connection closes
+        // This will be handled by the service's onClose callback
       },
       onError: (error) => {
         log.error('WebSocket error', error);
       },
     });
 
-    // Connect
+    // Connect and wait for connection to be established
     yield call(() => service.connect());
 
-    // Update status
+    // After connect() resolves, connection is established
+    // Update status now that we're actually connected
     yield put(setWebSocketStatus('connected'));
     yield put(setConnectedAt(new Date().toISOString()));
     yield put(resetReconnectAttempts());
+    log.info('WebSocket status set to connected in Redux');
 
-    // Create message channel
+    // Create message channel AFTER connection is established
     if (!messageChannel && wsService) {
       messageChannel = createWebSocketChannel(wsService);
       messageChannelTask = (yield fork(watchWebSocketMessages) as unknown) as Task<unknown>;
+      log.info('WebSocket message channel created and started');
     }
 
     // Re-subscribe to previously subscribed groups
     const subscribedGroupIds = (yield select(selectSubscribedGroupIds) as unknown) as string[];
-    if (subscribedGroupIds.length > 0) {
-      yield put(subscribeToGroupsAction(subscribedGroupIds));
+    
+    // Also check if there's a current chat group that needs subscription
+    const currentChatGroupId = (yield select((state: { navigation: { currentChatGroupId: string | null } }) =>
+      state.navigation?.currentChatGroupId
+    )) as unknown as string | null | undefined;
+    
+    const groupsToSubscribe = new Set<string>(subscribedGroupIds);
+    if (currentChatGroupId && !groupsToSubscribe.has(currentChatGroupId)) {
+      groupsToSubscribe.add(currentChatGroupId);
+      log.info('Found current chat group, adding to subscription', { groupId: currentChatGroupId });
+    }
+    
+    if (groupsToSubscribe.size > 0) {
+      const groupsArray = Array.from(groupsToSubscribe);
+      log.info('Subscribing to groups after connection', { 
+        groupIds: groupsArray,
+        fromPrevious: subscribedGroupIds,
+        fromCurrentChat: currentChatGroupId,
+      });
+      yield put(subscribeToGroupsAction(groupsArray));
+    } else {
+      log.debug('No groups to subscribe after connection', {
+        subscribedGroupIds: subscribedGroupIds.length,
+        currentChatGroupId: currentChatGroupId || null,
+      });
     }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Connection failed';
@@ -241,22 +276,45 @@ function* watchWebSocketMessages(): Generator<unknown, void, unknown> {
  */
 function* handleWebSocketMessage(message: WebSocketMessage): Generator<unknown, void, unknown> {
   try {
+    log.debug('Handling WebSocket message', {
+      type: message.type,
+      hasPayload: !!message.payload,
+    });
+    
     switch (message.type) {
-      case 'new_message':
+      case 'new_message': {
         // Convert WebSocket message format to domain Message format
         const domainMessage = convertWebSocketMessageToDomain(message);
+        log.info('Received new message via WebSocket', {
+          messageId: domainMessage.id,
+          groupId: domainMessage.group_id,
+          content: domainMessage.content.substring(0, 50),
+        });
         yield put(receiveMessageAction(domainMessage));
         break;
+      }
 
       case 'message_sent':
         // Message sent confirmation - mark message as synced in RxDB
         log.debug('Message sent confirmation', message.payload);
-        yield* handleMessageSentConfirmation(message.payload);
+        if (
+          typeof message.payload === 'object' &&
+          message.payload !== null &&
+          ('messageId' in message.payload || 'serverMessageId' in message.payload)
+        ) {
+          yield* handleMessageSentConfirmation(message.payload as MessageSentPayload);
+        }
         break;
 
       case 'message_error':
         log.error('Message error from server', message.payload);
-        yield put(setWebSocketError(message.payload.error || 'Message error'));
+        if (
+          typeof message.payload === 'object' &&
+          message.payload !== null &&
+          'error' in message.payload
+        ) {
+          yield put(setWebSocketError((message.payload as ErrorPayload).error || 'Message error'));
+        }
         break;
 
       case 'subscribed':
@@ -274,7 +332,13 @@ function* handleWebSocketMessage(message: WebSocketMessage): Generator<unknown, 
 
       case 'error':
         log.error('WebSocket error message', message.payload);
-        yield put(setWebSocketError(message.payload.error || 'WebSocket error'));
+        if (
+          typeof message.payload === 'object' &&
+          message.payload !== null &&
+          'error' in message.payload
+        ) {
+          yield put(setWebSocketError((message.payload as ErrorPayload).error || 'WebSocket error'));
+        }
         break;
 
       default:
@@ -312,19 +376,34 @@ function* handleMessageSentConfirmation(payload: { serverMessageId?: string; mes
  */
 function convertWebSocketMessageToDomain(wsMessage: WebSocketMessage): Message {
   const payload = wsMessage.payload;
-  return {
-    id: payload.id,
-    group_id: payload.groupId,
-    device_id: payload.deviceId,
-    content: payload.content,
-    message_type: payload.messageType,
-    sos_type: payload.sosType,
-    tags: payload.tags,
-    pinned: payload.pinned,
-    created_at: payload.createdAt,
-    device_sequence: payload.deviceSequence,
-    sync_status: 'synced' as const,
-  };
+  
+  // Type guard: ensure payload is NewMessagePayload
+  if (
+    typeof payload === 'object' &&
+    payload !== null &&
+    'id' in payload &&
+    'groupId' in payload &&
+    'deviceId' in payload &&
+    'content' in payload
+  ) {
+    const newMessagePayload = payload as NewMessagePayload;
+    return {
+      id: newMessagePayload.id,
+      group_id: newMessagePayload.groupId,
+      device_id: newMessagePayload.deviceId,
+      content: newMessagePayload.content,
+      message_type: newMessagePayload.messageType,
+      sos_type: newMessagePayload.sosType,
+      tags: newMessagePayload.tags,
+      pinned: newMessagePayload.pinned ?? false,
+      created_at: newMessagePayload.createdAt,
+      device_sequence: newMessagePayload.deviceSequence,
+      sync_status: 'synced' as const,
+    };
+  }
+  
+  // Fallback - should not happen for new_message type
+  throw new Error('Invalid payload type for new_message');
 }
 
 /**
@@ -337,24 +416,48 @@ function* watchSubscribeToGroups(): Generator<unknown, void, unknown> {
 function* handleSubscribeToGroups(action: { type: string; payload: string[] }): Generator<unknown, void, unknown> {
   const groupIds = action.payload;
   
-  if (!wsService || !wsService.isConnected()) {
-    log.warn('Cannot subscribe: WebSocket not connected');
+  log.info('handleSubscribeToGroups called', {
+    groupIds,
+    hasService: !!wsService,
+    isConnected: wsService?.isConnected(),
+    status: wsService?.getStatus(),
+  });
+  
+  if (!wsService) {
+    log.error('Cannot subscribe: WebSocket service not initialized', { groupIds });
+    return;
+  }
+  
+  if (!wsService.isConnected()) {
+    log.warn('Cannot subscribe: WebSocket not connected', {
+      isConnected: wsService.isConnected(),
+      status: wsService.getStatus(),
+      groupIds,
+    });
     return;
   }
 
   try {
-    // Update Redux state
+    // Update Redux state first
     for (const groupId of groupIds) {
       yield put(subscribeToGroup(groupId));
     }
+    log.info('Subscribed to groups in Redux', { groupIds });
 
     // Send subscribe message to server
-    wsService.send({
-      type: 'subscribe',
+    const subscribeMessage = {
+      type: 'subscribe' as const,
       payload: { groupIds },
-    });
+    };
+    log.info('Sending subscribe message to server', { groupIds, message: subscribeMessage });
+    wsService.send(subscribeMessage);
+    log.info('Subscribe message sent successfully to server', { groupIds });
   } catch (error) {
-    log.error('Failed to subscribe to groups', error);
+    log.error('Failed to subscribe to groups', error, { groupIds });
+    // Remove from Redux state on error
+    for (const groupId of groupIds) {
+      yield put(unsubscribeFromGroup(groupId));
+    }
   }
 }
 
@@ -399,11 +502,22 @@ function* watchSendWebSocketMessage(): Generator<unknown, void, unknown> {
 function* handleSendWebSocketMessage(action: { type: string; payload: WebSocketMessage }): Generator<unknown, void, unknown> {
   const message = action.payload;
   
-  if (!wsService || !wsService.isConnected()) {
+  if (!wsService) {
+    const error = new Error('WebSocket service not initialized');
+    log.error('Cannot send message: WebSocket service not initialized', {
+      messageType: message.type,
+    });
+    yield put(setWebSocketError('WebSocket service not initialized'));
+    yield put(setWebSocketStatus('error'));
+    throw error;
+  }
+  
+  if (!wsService.isConnected()) {
     const error = new Error('WebSocket not connected');
     log.warn('Cannot send message: WebSocket not connected', {
       messageType: message.type,
-      readyState: wsService?.getStatus(),
+      status: wsService.getStatus(),
+      isConnected: wsService.isConnected(),
     });
     
     // Update error state
@@ -414,13 +528,21 @@ function* handleSendWebSocketMessage(action: { type: string; payload: WebSocketM
   }
 
   try {
+    log.debug('Sending WebSocket message', {
+      type: message.type,
+      payload: message.payload,
+    });
     wsService.send(message);
-    log.debug('WebSocket message sent successfully', { type: message.type });
+    log.info('WebSocket message sent successfully', {
+      type: message.type,
+      hasPayload: !!message.payload,
+    });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Failed to send message';
     log.error('Failed to send WebSocket message', error, {
       messageType: message.type,
       errorMessage,
+      status: wsService.getStatus(),
     });
     
     // Update error state

@@ -5,6 +5,7 @@
 
 // Hooks
 export { useMessages } from "./hooks/useMessages";
+export { useChatGroup } from "./hooks/useChatGroup";
 
 // Services
 export { createMessage, createSOSMessage, checkSOSCooldown } from "./services/message-service";

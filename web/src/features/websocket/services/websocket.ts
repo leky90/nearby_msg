@@ -69,7 +69,7 @@ export interface ErrorPayload {
  */
 export interface WebSocketMessage {
   type: WebSocketMessageType;
-  payload: SendMessagePayload | NewMessagePayload | MessageSentPayload | SubscribePayload | ErrorPayload | any;
+  payload: SendMessagePayload | NewMessagePayload | MessageSentPayload | SubscribePayload | ErrorPayload | Record<string, unknown>;
   timestamp?: string;
   messageId?: string;
 }
@@ -356,8 +356,35 @@ export class WebSocketService {
 
 /**
  * Get WebSocket URL from environment or default
+ * In development, uses proxy (relative URL)
+ * In production, uses VITE_WS_URL or constructs from VITE_API_URL/VITE_API_HOST
  */
 export function getWebSocketUrl(): string {
+  // If VITE_WS_URL is explicitly set, use it (for production or custom setup)
+  if (import.meta.env.VITE_WS_URL) {
+    return import.meta.env.VITE_WS_URL;
+  }
+
+  // In development mode, use proxy (relative URL)
+  if (import.meta.env.DEV) {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${protocol}//${window.location.host}/ws/messages`;
+  }
+
+  // Production: construct from VITE_API_URL or VITE_API_HOST
+  const apiUrl = import.meta.env.VITE_API_URL;
+  if (apiUrl) {
+    // Extract host from API URL and convert to WebSocket URL
+    try {
+      const url = new URL(apiUrl);
+      const protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+      return `${protocol}//${url.host}/ws/messages`;
+    } catch {
+      // If VITE_API_URL is not a valid URL, fall through to VITE_API_HOST
+    }
+  }
+
+  // Use VITE_API_HOST if available
   const host = import.meta.env.VITE_API_HOST || window.location.host;
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${protocol}//${host}/ws/messages`;

@@ -5,7 +5,7 @@
 
 // Services
 export { startReplication, stopReplication } from "./services/replication";
-export { startMessageSync, stopMessageSync, triggerImmediateSync } from "./services/replication-sync";
+export { triggerImmediateSync } from "./services/replication-sync";
 export { syncCollection } from "./services/collection-sync";
 export { getPendingMutations, updateMutationStatus, removeMutation } from "./services/mutation-queue";
 export { clearAllUserData } from "./services/data-clear";

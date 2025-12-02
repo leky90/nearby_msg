@@ -20,16 +20,19 @@ import { showToast } from "@/shared/utils/toast";
 export function DataClearSection() {
   const dispatch = useDispatch();
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
 
   const handleClearData = () => {
+    if (isClearing) {
+      return;
+    }
+    setIsClearing(true);
+
     // Dispatch Redux action - saga handles clearing data
     dispatch(clearDeviceAction());
     showToast("Đã xóa tất cả dữ liệu. Vui lòng đăng ký lại.", "success");
-
-    // Reload page to trigger onboarding
-    setTimeout(() => {
-      window.location.reload();
-    }, 1000);
+    // Đóng modal, để flow onboarding chạy lại dựa trên Redux (onboardingRequired = true)
+    setIsModalOpen(false);
   };
 
   return (
@@ -81,7 +84,11 @@ export function DataClearSection() {
               <Button variant="outline" onPress={() => setIsModalOpen(false)}>
                 Hủy
               </Button>
-              <Button variant="destructive" onPress={handleClearData}>
+              <Button
+                variant="destructive"
+                onPress={handleClearData}
+                isDisabled={isClearing}
+              >
                 Xóa dữ liệu
               </Button>
             </div>

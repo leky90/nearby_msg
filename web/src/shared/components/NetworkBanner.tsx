@@ -3,15 +3,12 @@
  * Displays full-width network status banner below header
  */
 
-import { useState, useEffect } from "react";
 import { Wifi, WifiOff, Gauge } from "lucide-react";
+import { useSelector } from "react-redux";
 import { cn } from "@/shared/lib/utils";
-import {
-  getNetworkStatus,
-  subscribeToNetworkStatus,
-  type NetworkStatus,
-} from "@/shared/services/network-status";
+import { selectNetworkStatus } from "@/features/navigation/store/appSlice";
 import { t } from "@/shared/lib/i18n";
+import type { RootState } from "@/store";
 
 export interface NetworkBannerProps {
   /** Custom className */
@@ -21,16 +18,10 @@ export interface NetworkBannerProps {
 /**
  * Network Banner component
  * Shows full-width network status banner below header
+ * Reads network status from Redux store (managed by appSaga)
  */
 export function NetworkBanner({ className = "" }: NetworkBannerProps) {
-  const [status, setStatus] = useState<NetworkStatus>(getNetworkStatus());
-
-  useEffect(() => {
-    const unsubscribe = subscribeToNetworkStatus((newStatus) => {
-      setStatus(newStatus);
-    });
-    return unsubscribe;
-  }, []);
+  const status = useSelector((state: RootState) => selectNetworkStatus(state));
 
   // Don't show banner when online
   if (status === "online") {

@@ -8,9 +8,9 @@ import { useEffect } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import type { Message } from "@/shared/domain/message";
 import {
-  selectMessagesByGroupId,
-  selectMessagesLoading,
-  selectMessagesError,
+    selectMessagesByGroupId,
+    selectMessagesLoading,
+    selectMessagesError,
 } from "@/features/messages/store/slice";
 import { syncMessagesAction, startMessageSubscriptionAction, stopMessageSubscriptionAction } from "@/features/messages/store/saga";
 import type { RootState } from "@/store";
@@ -63,14 +63,14 @@ export function useMessages({
 
   // Sync messages on mount and when groupId changes
   useEffect(() => {
-    if (groupId) {
+    if (groupId && groupId.trim() !== '') {
       dispatch(syncMessagesAction(groupId));
     }
   }, [groupId, dispatch]);
 
   // Start/stop reactive subscription based on reactive flag
   useEffect(() => {
-    if (!groupId || !reactive) {
+    if (!groupId || groupId.trim() === '' || !reactive) {
       return;
     }
 

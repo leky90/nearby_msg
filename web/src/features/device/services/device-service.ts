@@ -5,8 +5,7 @@
  */
 
 import type { Device, DeviceCreateRequest } from "@/shared/domain/device";
-import { get, post, setToken } from '@/shared/services/api';
-import { clearAllUserData } from '@/features/replication/services/data-clear';
+import { post, setToken } from '@/shared/services/api';
 import { getDatabase } from '@/shared/services/db';
 import { getOrCreateDeviceId, setDeviceId } from '@/features/device/services/device-storage';
 import { queueMutation } from '@/features/replication/services/mutation-queue';
@@ -14,7 +13,8 @@ import { log } from "@/shared/lib/logging/logger";
 
 /**
  * Query function for fetching device
- * Reads from RxDB first, then falls back to API if not found
+ * RxDB-only approach: reads from local cache only
+ * Note: Caller should trigger pull replication before calling this if cache might be empty.
  * Does NOT auto-register - user must provide nickname via onboarding
  * @returns Device or null
  */
@@ -28,67 +28,19 @@ export async function fetchDevice(): Promise<Device | null> {
 
   const deviceId = getOrCreateDeviceId();
   
-  // Try RxDB first (instant, offline support)
-  try {
-    const db = await getDatabase();
-    const cached = await db.devices.findOne(deviceId).exec();
-    if (cached) {
-      const device = cached.toJSON() as Device;
-      // Verify token exists - if not, device might need re-registration
-      if (token) {
-        return device;
-      }
-      // Token missing but device cached - might need re-registration
-      // Continue to API check
-    }
-  } catch {
-    // RxDB not available, continue to API
+  // RxDB-only: Read from cache (synced via replication)
+  const db = await getDatabase();
+  const cached = await db.devices.findOne(deviceId).exec();
+  
+  if (cached) {
+    const device = cached.toJSON() as Device;
+    return device;
   }
-
-  // Fallback to API if not in cache
-  try {
-    const response = await get<Device>(`/device?id=${deviceId}`);
-    
-    // Store in RxDB for next time
-    if (response) {
-      const db = await getDatabase();
-      await db.devices.upsert(response);
-    }
-    
-    return response;
-  } catch (err) {
-    // If 404 (device not found), clear all user data
-    if (
-      err &&
-      typeof err === 'object' &&
-      'status' in err &&
-      (err as { status: number }).status === 404
-    ) {
-      // Clear all user data (RxDB, localStorage, sessionStorage)
-      try {
-        await clearAllUserData();
-      } catch {
-        // Ignore errors when clearing data
-      }
-      
-      // Device not found - return null to trigger onboarding
-      return null;
-    }
-    
-    // If 401 (unauthorized), device needs registration
-    if (
-      err &&
-      typeof err === 'object' &&
-      'status' in err &&
-      (err as { status: number }).status === 401
-    ) {
-      // Device not registered - return null to trigger onboarding
-      return null;
-    }
-    
-    // Other errors - return null
-    return null;
-  }
+  
+  // Device not in RxDB - return null
+  // Caller should trigger pull replication to fetch from server
+  // This ensures all data flows through RxDB, not direct API calls
+  return null;
 }
 
 /**

@@ -9,7 +9,7 @@ import {
   updateGroupName as updateGroupNameService,
   suggestGroupNameAndType,
 } from "@/features/groups/services/group-service";
-import { addFavorite, removeFavorite } from "@/features/groups/services/favorite-service";
+import { addFavorite, removeFavorite, isFavorited } from "@/features/groups/services/favorite-service";
 import { getGroupStatusSummary } from "@/features/status/services/status-service";
 import { getLatestMessage, getUnreadCount } from "@/features/messages/services/message-service";
 import { getDatabase } from "@/shared/services/db";
@@ -165,10 +165,19 @@ function* handleFetchNearbyGroups(action: { type: string; payload: NearbyGroupsR
     yield put(setNearbyGroupsLoading(true));
     yield put(setNearbyGroupsError(null));
     
+    // First, ensure groups are pulled via replication (if not already done)
+    // This ensures all data flows through RxDB, not direct API calls
+    yield call(pullDocuments, ['groups'], undefined, {
+      latitude: action.payload.latitude,
+      longitude: action.payload.longitude,
+      radius: action.payload.radius,
+    });
+    
+    // Then read from RxDB (synced via replication)
     const response: NearbyGroupsResponse = yield call(discoverNearbyGroups, action.payload);
     
     yield put(setNearbyGroups(response.groups));
-    // Store distances from backend if provided; otherwise reset to empty array
+    // Store distances calculated locally from RxDB data
     yield put(setNearbyGroupsDistances(response.distances ?? []));
     yield put(setLastFetchParams(action.payload));
   } catch (error) {
@@ -232,8 +241,7 @@ function* handleFetchGroupDetails(action: { type: string; payload: string }) {
     yield put(setGroupLoading({ groupId, loading: true }));
     yield put(setGroupError({ groupId, error: null }));
     
-    // Fetch group from service (reads from RxDB first, falls back to API if needed)
-    // Service updates RxDB, which triggers Groups RxDB listener to update Redux
+    // Fetch group from service (reads from RxDB only)
     const group: Group | null = yield call(getGroup, groupId);
     
     if (group) {
@@ -243,13 +251,35 @@ function* handleFetchGroupDetails(action: { type: string; payload: string }) {
       yield put(setGroup(group));
       log.debug('Group fetched and updated in Redux', { groupId });
     } else {
-      log.warn('Group not found', { groupId });
-      yield put(
-        setGroupError({
-          groupId,
-          error: 'Group not found',
-        })
-      );
+      // Group not in RxDB: trigger pull replication to fetch from server
+      // This ensures all data flows through RxDB, not direct API calls
+      log.debug('Group not in RxDB, triggering pull replication', { groupId });
+      
+      // Get device location for location-based pull
+      const deviceLocation = (yield select((state: RootState) => selectDeviceLocation(state))) as unknown as ReturnType<typeof selectDeviceLocation>;
+      const radius = (yield select((state: RootState) => selectSelectedRadius(state))) as unknown as ReturnType<typeof selectSelectedRadius>;
+      
+      // Pull groups replication (will update RxDB, which triggers listener to update Redux)
+      yield call(pullDocuments, ['groups'], [groupId], deviceLocation ? {
+        latitude: deviceLocation.latitude,
+        longitude: deviceLocation.longitude,
+        radius: radius || 5000,
+      } : undefined);
+      
+      // Check again after pull
+      const groupAfterPull: Group | null = yield call(getGroup, groupId);
+      if (groupAfterPull) {
+        yield put(setGroup(groupAfterPull));
+        log.debug('Group fetched after pull replication', { groupId });
+      } else {
+        log.warn('Group not found after pull replication', { groupId });
+        yield put(
+          setGroupError({
+            groupId,
+            error: 'Group not found',
+          })
+        );
+      }
     }
     
     yield put(setGroupLoading({ groupId, loading: false }));

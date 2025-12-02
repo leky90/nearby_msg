@@ -5,8 +5,9 @@ import (
 	"errors"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"nearby-msg/api/internal/domain"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // DeviceRepository handles device database operations
@@ -75,6 +76,19 @@ func (r *DeviceRepository) UpdateNickname(ctx context.Context, id string, nickna
 		WHERE id = $2
 	`
 	result, err := r.pool.Exec(ctx, query, nickname, id)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return errors.New("device not found")
+	}
+	return nil
+}
+
+// Delete removes a device by ID (hard delete)
+func (r *DeviceRepository) Delete(ctx context.Context, id string) error {
+	query := `DELETE FROM devices WHERE id = $1`
+	result, err := r.pool.Exec(ctx, query, id)
 	if err != nil {
 		return err
 	}

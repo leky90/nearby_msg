@@ -5,7 +5,7 @@
 
 import type { Message } from "@/shared/domain/message";
 import type { Device } from "@/shared/domain/device";
-import { formatMessageDate } from "@/features/messages/components/MessageBubble";
+import { formatMessageDate } from "@/features/messages/utils/format-message-date";
 
 export interface GroupedMessage {
   message: Message;

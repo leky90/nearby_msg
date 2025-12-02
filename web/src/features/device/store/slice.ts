@@ -1,5 +1,6 @@
 import { createSlice, type PayloadAction, createSelector } from '@reduxjs/toolkit';
 import type { Device } from "@/shared/domain/device";
+import { log } from "@/shared/lib/logging/logger";
 
 interface DeviceState {
   device: Device | null; // Current device
@@ -61,10 +62,17 @@ const deviceSlice = createSlice({
       state.jwtToken = action.payload;
     },
     clearDevice: (state) => {
+      log.info('[CLEAR_DEVICE_REDUCER] Clearing device state in Redux', {
+        hadDevice: !!state.device,
+        deviceId: state.device?.id,
+        wasRegistered: state.isRegistered,
+        hadToken: !!state.jwtToken,
+      });
       state.device = null;
       state.isRegistered = false;
       state.jwtToken = null;
       state.error = null;
+      log.info('[CLEAR_DEVICE_REDUCER] Device state cleared in Redux');
     },
   },
 });

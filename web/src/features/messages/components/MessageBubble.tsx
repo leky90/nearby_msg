@@ -14,14 +14,14 @@ import {
   RefreshCw,
   AlertCircle,
 } from "lucide-react";
-import { format, isToday, isYesterday } from "date-fns";
-import { vi } from "date-fns/locale";
+import { format } from "date-fns";
 import type { Message } from "@/shared/domain/message";
 import { cn } from "@/shared/lib/utils";
 import {
   pinMessage,
   unpinMessage,
 } from "@/features/messages/services/pin-service";
+import { fetchPinnedMessagesAction } from "@/features/messages/store/saga";
 import { Button } from "@/shared/components/ui/button";
 import type { Device } from "@/shared/domain/device";
 import { calculateDistance } from "@/shared/domain/group";
@@ -33,11 +33,7 @@ import { selectPinnedMessagesByGroupId } from "@/features/messages/store/slice";
 import { selectGroupById } from "@/features/groups/store/slice";
 import { log } from "@/shared/lib/logging/logger";
 import type { RootState } from "@/store";
-import {
-  Message as TakiMessage,
-  MessageAvatar,
-  MessageContent,
-} from "@/shared/components/ai-elements/message";
+import { MessageContent } from "@/shared/components/ui/message";
 
 export interface MessageBubbleProps {
   /** Message to display */
@@ -48,8 +44,6 @@ export interface MessageBubbleProps {
   onClick?: (message: Message) => void;
   /** Custom className */
   className?: string;
-  /** Whether to show pin button */
-  showPinButton?: boolean;
   /** Whether this is the first message in a group */
   isFirstInGroup?: boolean;
   /** Device info for displaying sender name */
@@ -65,32 +59,6 @@ function formatMessageTime(timestamp: string): string {
 }
 
 /**
- * Formats date for display using date-fns
- */
-export function formatMessageDate(timestamp: string): string {
-  const date = new Date(timestamp);
-
-  if (isToday(date)) {
-    return "Hôm nay";
-  }
-
-  if (isYesterday(date)) {
-    return "Hôm qua";
-  }
-
-  // Within last 7 days - show day name
-  const daysDiff = Math.floor(
-    (Date.now() - date.getTime()) / (1000 * 60 * 60 * 24)
-  );
-  if (daysDiff < 7) {
-    return format(date, "EEEE", { locale: vi });
-  }
-
-  // Older - show date
-  return format(date, "d MMMM yyyy", { locale: vi });
-}
-
-/**
  * Message Bubble component
  * Simple chat message with distance and time
  */
@@ -100,7 +68,6 @@ export const MessageBubble = memo(
     isOwn = false,
     onClick,
     className = "",
-    showPinButton = true,
     isFirstInGroup = true,
     device,
   }: MessageBubbleProps) {
@@ -139,9 +106,8 @@ export const MessageBubble = memo(
 
     // Check if this message is pinned (from Redux state)
     const pinned = useMemo(() => {
-      if (!showPinButton) return false;
       return pinnedMessages.some((pin) => pin.message_id === message.id);
-    }, [showPinButton, pinnedMessages, message.id]);
+    }, [pinnedMessages, message.id]);
 
     // Calculate distance from sender using useMemo (no async needed)
     const distance = useMemo(() => {
@@ -176,13 +142,11 @@ export const MessageBubble = memo(
       try {
         if (pinned) {
           await unpinMessage(message.id);
-          // Pinned status will update via Redux when pinned messages are refetched
-          // Component will re-render when Redux state updates
         } else {
-          await pinMessage(message.id);
-          // Pinned status will update via Redux when pinned messages are refetched
-          // Component will re-render when Redux state updates
+          await pinMessage(message.id, message.group_id);
         }
+        // Refresh pinned messages for this group so UI updates immediately
+        dispatch(fetchPinnedMessagesAction(message.group_id));
       } catch (err) {
         log.error("Failed to toggle pin", err, {
           messageId: message.id,
@@ -194,11 +158,18 @@ export const MessageBubble = memo(
     const senderName =
       senderDevice?.nickname || `Device ${message.device_id.substring(0, 6)}`;
 
-    // Get avatar source - use device nickname initials or default
-    const avatarSrc = ""; // Device type doesn't have avatar property, using initials fallback
-
     return (
-      <div className={cn("group", !isFirstInGroup && "mt-0.5", className)}>
+      <div
+        className={cn(
+          "group",
+          "max-w-4/5",
+          "w-max",
+          // Đưa role vào wrapper để dùng group-[.is-user] trong UI component
+          isOwn ? "is-user ml-auto" : "is-assistant items-start",
+          !isFirstInGroup && "mt-0.5",
+          className
+        )}
+      >
         {/* Sender name and distance - only for others and first in group */}
         {!isOwn && isFirstInGroup && (
           <div className="flex items-center gap-2 mb-1 px-1">
@@ -213,51 +184,41 @@ export const MessageBubble = memo(
           </div>
         )}
 
-        {/* Taki UI Message component */}
-        <TakiMessage
-          from={isOwn ? "user" : "assistant"}
-          className={cn(
-            onClick && "cursor-pointer",
-            pinned && "ring-2 ring-yellow-400 ring-offset-1 rounded-lg"
-          )}
-          onClick={handleClick}
-        >
-          {/* Avatar - only show for others and first in group */}
-          {!isOwn && isFirstInGroup && (
-            <MessageAvatar src={avatarSrc} name={senderName} />
-          )}
-
-          {/* Message content with Taki UI MessageContent */}
-          <MessageContent
-            variant={isOwn ? "contained" : "flat"}
-            className={cn("relative", onClick && "hover:opacity-90")}
-          >
-            <div className="flex items-start gap-2">
-              <div className="flex-1 text-sm leading-relaxed break-words overflow-wrap-anywhere">
-                {message.content}
-              </div>
-
-              {/* Pin button - show on hover */}
-              {showPinButton && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className={cn(
-                    "h-5 w-5 p-0 opacity-0 group-hover:opacity-100 transition-opacity shrink-0",
-                    isOwn &&
-                      "text-primary-foreground/70 hover:text-primary-foreground hover:bg-primary-foreground/20"
-                  )}
-                  onClick={handlePinClick}
-                  aria-label={pinned ? "Bỏ ghim tin nhắn" : "Ghim tin nhắn"}
-                >
-                  {pinned ? (
-                    <PinOff className="h-3 w-3" />
-                  ) : (
-                    <Pin className="h-3 w-3" />
-                  )}
-                </Button>
+        {/* Message wrapper with pin button outside */}
+        <div className={cn("flex items-start gap-2", isOwn && "justify-end")}>
+          {/* Pin button for owner - on the left */}
+          {isOwn && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className={cn(
+                "h-5 w-5 p-0 shrink-0 transition-colors mt-1",
+                pinned
+                  ? "text-yellow-600 hover:text-yellow-700 hover:bg-yellow-100 dark:hover:bg-yellow-900/20"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
               )}
-            </div>
+              onClick={handlePinClick}
+              aria-label={pinned ? "Bỏ ghim tin nhắn" : "Ghim tin nhắn"}
+            >
+              {pinned ? (
+                <PinOff className="h-3.5 w-3.5" />
+              ) : (
+                <Pin className="h-3.5 w-3.5" />
+              )}
+            </Button>
+          )}
+
+          {/* Message content bubble */}
+          <MessageContent
+            className={cn(
+              "relative",
+              // Width / interaction applied trực tiếp cho bubble
+              onClick && "cursor-pointer hover:opacity-90",
+              pinned && "ring-2 ring-yellow-400 ring-offset-1 rounded-lg"
+            )}
+            onClick={handleClick}
+          >
+            <div className="text-sm leading-relaxed">{message.content}</div>
 
             {/* Timestamp and status */}
             <div
@@ -268,6 +229,8 @@ export const MessageBubble = memo(
                   : "text-muted-foreground"
               )}
             >
+              {/* Pinned indicator */}
+              {pinned && <Pin className="h-3 w-3 text-yellow-600" />}
               <span>{formatMessageTime(message.created_at)}</span>
               {isOwn && (
                 <div className="flex items-center gap-0.5">
@@ -317,7 +280,29 @@ export const MessageBubble = memo(
               </div>
             )}
           </MessageContent>
-        </TakiMessage>
+
+          {/* Pin button for other users - on the right */}
+          {!isOwn && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className={cn(
+                "h-5 w-5 p-0 shrink-0 transition-colors mt-1",
+                pinned
+                  ? "text-yellow-600 hover:text-yellow-700 hover:bg-yellow-100 dark:hover:bg-yellow-900/20"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
+              )}
+              onClick={handlePinClick}
+              aria-label={pinned ? "Bỏ ghim tin nhắn" : "Ghim tin nhắn"}
+            >
+              {pinned ? (
+                <PinOff className="h-3.5 w-3.5" />
+              ) : (
+                <Pin className="h-3.5 w-3.5" />
+              )}
+            </Button>
+          )}
+        </div>
       </div>
     );
   },
@@ -332,7 +317,6 @@ export const MessageBubble = memo(
       prevProps.message.created_at === nextProps.message.created_at &&
       prevProps.isOwn === nextProps.isOwn &&
       prevProps.className === nextProps.className &&
-      prevProps.showPinButton === nextProps.showPinButton &&
       prevProps.isFirstInGroup === nextProps.isFirstInGroup &&
       prevProps.device?.id === nextProps.device?.id &&
       prevProps.device?.nickname === nextProps.device?.nickname

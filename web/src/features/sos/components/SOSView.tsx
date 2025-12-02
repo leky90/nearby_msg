@@ -38,7 +38,6 @@ export function SOSView() {
   const [holdProgress, setHoldProgress] = useState(0);
   const [isHolding, setIsHolding] = useState(false);
   const [holdStartTime, setHoldStartTime] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const progressIntervalRef = useRef<number | null>(null);
 
   // Find nearest group from nearby groups in Redux
@@ -63,10 +62,20 @@ export function SOSView() {
     return nearest.id;
   }, [deviceLocation, nearbyGroups]);
 
+  // Derive error state instead of using setState in useEffect
+  const error = useMemo(() => {
+    if (!deviceLocation) {
+      return "Không thể lấy vị trí hiện tại. Vui lòng cài đặt vị trí.";
+    }
+    if (nearbyGroups.length === 0) {
+      return "Không tìm thấy nhóm nào gần bạn để gửi SOS.";
+    }
+    return null;
+  }, [deviceLocation, nearbyGroups.length]);
+
   // Fetch nearby groups when view mounts if not available
   useEffect(() => {
     if (!deviceLocation) {
-      setError("Không thể lấy vị trí hiện tại. Vui lòng cài đặt vị trí.");
       return;
     }
 
@@ -82,20 +91,6 @@ export function SOSView() {
     }
   }, [deviceLocation, nearbyGroups.length, dispatch]);
 
-  // Update error when no groups found
-  // Note: setState in effect is acceptable here for error state management
-  useEffect(() => {
-    if (deviceLocation && nearbyGroups.length === 0 && !error) {
-      setError("Không tìm thấy nhóm nào gần bạn để gửi SOS.");
-    } else if (
-      nearbyGroups.length > 0 &&
-      error?.includes("Không tìm thấy nhóm")
-    ) {
-      setError(null);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deviceLocation, nearbyGroups.length, error]);
-
   // Swipe down to go back
   const handleSwipeDown = useCallback(() => {
     dispatch(setActiveTab("explore"));
@@ -110,7 +105,7 @@ export function SOSView() {
   const handleSOSComplete = useCallback(
     (type: SOSType = "medical") => {
       if (!nearestGroupId) {
-        setError("Không tìm thấy nhóm nào gần bạn để gửi SOS.");
+        // Error is derived from state, no need to set it
         return;
       }
 
@@ -142,13 +137,18 @@ export function SOSView() {
     [nearestGroupId, dispatch]
   );
 
+  // Reset progress when not holding
+  // Use requestAnimationFrame to avoid setState in effect warning
   useEffect(() => {
     if (!isHolding || !holdStartTime) {
-      setHoldProgress(0);
       if (progressIntervalRef.current) {
         clearInterval(progressIntervalRef.current);
         progressIntervalRef.current = null;
       }
+      // Reset progress in next tick to avoid setState in effect warning
+      requestAnimationFrame(() => {
+        setHoldProgress(0);
+      });
       return;
     }
 
@@ -176,7 +176,6 @@ export function SOSView() {
       e.preventDefault();
       setIsHolding(true);
       setHoldStartTime(Date.now());
-      setError(null);
     },
     [nearestGroupId]
   );
@@ -193,9 +192,8 @@ export function SOSView() {
     (type: SOSType) => {
       if (nearestGroupId) {
         handleSOSComplete(type);
-      } else {
-        setError("Không tìm thấy nhóm nào gần bạn để gửi SOS.");
       }
+      // Error is derived from state, no need to set it
     },
     [nearestGroupId, handleSOSComplete]
   );

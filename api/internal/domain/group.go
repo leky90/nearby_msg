@@ -35,7 +35,7 @@ type Group struct {
 	Latitude        float64   `json:"latitude"`
 	Longitude       float64   `json:"longitude"`
 	RegionCode      *string   `json:"region_code,omitempty"`
-	CreatorDeviceID string    `json:"creator_device_id"`
+	CreatorDeviceID *string  `json:"creator_device_id,omitempty"` // NULL when creator device is deleted
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
 }

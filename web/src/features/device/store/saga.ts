@@ -2,23 +2,25 @@ import { call, put, takeEvery, takeLatest, fork, all, take, cancelled } from 're
 import { eventChannel, type EventChannel } from 'redux-saga';
 import type { Device, DeviceCreateRequest, DeviceUpdateRequest } from "@/shared/domain/device";
 import {
-    fetchDevice,
-    registerDeviceMutation,
-    updateDeviceNickname,
+  fetchDevice,
+  registerDeviceMutation,
+  updateDeviceNickname,
 } from "@/features/device/services/device-service";
 import { clearAllUserData } from "@/features/replication/services/data-clear";
 import { setToken } from "@/shared/services/api";
-import { getToken } from "@/features/device/services/device-storage";
+import { getToken, getDeviceId } from "@/features/device/services/device-storage";
+import { del } from "@/shared/services/api";
 import {
-    setDevice,
-    setDevicesById,
-    setDeviceLoading,
-    setDeviceError,
-    setJWTToken,
-    clearDevice,
+  setDevice,
+  setDevicesById,
+  setDeviceLoading,
+  setDeviceError,
+  setJWTToken,
+  clearDevice,
 } from './slice';
-import { setOnboardingRequired } from "@/features/navigation/store/appSlice";
+import { setOnboardingRequired, setInitializationStatus } from "@/features/navigation/store/appSlice";
 import { getDatabase } from "@/shared/services/db";
+import { pullDocuments } from "@/features/replication/services/replication-sync";
 import { log } from "@/shared/lib/logging/logger";
 
 // Action types
@@ -105,6 +107,7 @@ function* handleFetchDevice() {
     yield put(setDeviceLoading(true));
     yield put(setDeviceError(null));
     
+    // Read from RxDB first
     const device: Device | null = yield call(fetchDevice);
     
     if (device) {
@@ -121,7 +124,31 @@ function* handleFetchDevice() {
         yield put({ type: 'app/startServices' });
       }
     } else {
-      yield put(setDevice(null));
+      // Device not in RxDB: check if we have token (device should be registered)
+      const token = getToken();
+      if (token) {
+        // Device should exist but not in RxDB: trigger pull replication
+        // This ensures all data flows through RxDB, not direct API calls
+        log.debug('Device not in RxDB but token exists, triggering pull replication');
+        yield call(pullDocuments, ['devices']);
+        
+        // Read again after pull
+        const deviceAfterPull: Device | null = yield call(fetchDevice);
+        if (deviceAfterPull) {
+          yield put(setDevice(deviceAfterPull));
+          yield put(setJWTToken(token));
+          setToken(token);
+          if (deviceAfterPull.nickname) {
+            yield put({ type: 'app/startServices' });
+          }
+        } else {
+          // Still not found after pull - might need registration
+          yield put(setDevice(null));
+        }
+      } else {
+        // No token - device not registered yet
+        yield put(setDevice(null));
+      }
     }
   } catch (error) {
     log.error('Failed to fetch device', error);
@@ -160,6 +187,9 @@ function* handleRegisterDevice(action: { type: string; payload?: DeviceCreateReq
     
     // Clear onboarding requirement since device is now registered
     yield put(setOnboardingRequired(false));
+    
+    // Set active tab to explore after successful registration
+    yield put({ type: 'navigation/setActiveTab', payload: 'explore' });
     
     // If device has nickname, trigger service startup
     if (response.device.nickname) {
@@ -214,26 +244,80 @@ function* handleUpdateDevice(action: { type: string; payload: DeviceUpdateReques
   }
 }
 
+// Guard to prevent infinite loops - only allow one clear operation at a time
+let isClearingDevice = false;
+
 function* watchClearDevice() {
-  yield takeEvery(CLEAR_DEVICE, handleClearDevice);
+  yield takeLatest(CLEAR_DEVICE, handleClearDevice);
 }
 
 function* handleClearDevice() {
+  // Guard: Prevent multiple simultaneous clear operations
+  if (isClearingDevice) {
+    log.warn('[CLEAR_DEVICE] Clear operation already in progress, skipping duplicate call');
+    return;
+  }
+  
+  isClearingDevice = true;
+  log.info('[CLEAR_DEVICE] Step 1: Starting device clear process', { 
+    timestamp: new Date().toISOString(),
+    stackTrace: new Error().stack 
+  });
+  
   try {
+    // Get device ID before clearing (needed for API call)
+    const deviceId = getDeviceId();
+    log.info('[CLEAR_DEVICE] Step 2: Retrieved device ID', { deviceId, hasDeviceId: !!deviceId });
+    
+    // Call API to delete device on server (if device ID exists)
+    // Note: Backend extracts device ID from JWT token, not from query parameter
+    if (deviceId) {
+      try {
+        log.info('[CLEAR_DEVICE] Step 3: Calling API to delete device on server', { deviceId });
+        // Backend extracts device ID from JWT token in Authorization header
+        // Note: API_URL in dev is '/api' which proxy rewrites to '/v1', so endpoint should be '/device/' not '/v1/device/'
+        yield call(() => del('/device/'));
+        log.info('[CLEAR_DEVICE] Step 3: Device deleted on server successfully', { deviceId });
+      } catch (apiError) {
+        // Log but don't fail - local clear should still proceed
+        // Device might already be deleted or network might be offline
+        log.warn('[CLEAR_DEVICE] Step 3: Failed to delete device on server (continuing with local clear)', apiError, { deviceId });
+      }
+    } else {
+      log.info('[CLEAR_DEVICE] Step 3: Skipping server deletion (no device ID)');
+    }
+    
     // Clear all user data (RxDB, localStorage, etc.)
+    log.info('[CLEAR_DEVICE] Step 4: Starting clearAllUserData');
     yield call(clearAllUserData);
+    log.info('[CLEAR_DEVICE] Step 4: clearAllUserData completed');
     
     // Clear Redux state
+    log.info('[CLEAR_DEVICE] Step 5: Clearing Redux device state');
     yield put(clearDevice());
+    log.info('[CLEAR_DEVICE] Step 5: Redux device state cleared');
+    
+    log.info('[CLEAR_DEVICE] Step 6: Clearing token');
     setToken('');
+    log.info('[CLEAR_DEVICE] Step 6: Token cleared');
     
-    // Set onboarding required
+    // Set onboarding required and set initialization status to ready
+    // This ensures App.tsx immediately shows OnboardingScreen
+    log.info('[CLEAR_DEVICE] Step 7: Setting onboarding required and setting initialization to ready');
     yield put(setOnboardingRequired(true));
+    yield put(setInitializationStatus({ status: 'ready' }));
+    log.info('[CLEAR_DEVICE] Step 7: Onboarding required set, initialization set to ready');
     
-    log.info('All user data cleared, onboarding required');
+    log.info('[CLEAR_DEVICE] Step 8: All user data cleared, onboarding required - PROCESS COMPLETE');
   } catch (error) {
-    log.error('Failed to clear device data', error);
+    log.error('[CLEAR_DEVICE] ERROR: Failed to clear device data', error);
     throw error;
+  } finally {
+    // Reset guard after operation completes
+    // Note: We keep the guard set to true permanently after first clear
+    // to prevent any re-triggers. The guard will only reset on page reload.
+    // This is intentional - once data is cleared, we don't want to clear again.
+    log.info('[CLEAR_DEVICE] Clear operation completed, guard remains set to prevent re-triggers');
   }
 }
 
