@@ -31,7 +31,7 @@ export function DataClearSection() {
     // Dispatch Redux action - saga handles clearing data
     dispatch(clearDeviceAction());
     showToast("Đã xóa tất cả dữ liệu. Vui lòng đăng ký lại.", "success");
-    // Đóng modal, để flow onboarding chạy lại dựa trên Redux (onboardingRequired = true)
+    // Đóng modal, App.tsx sẽ tự động hiển thị onboarding khi device === null
     setIsModalOpen(false);
   };
 

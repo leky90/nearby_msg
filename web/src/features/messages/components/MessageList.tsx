@@ -11,18 +11,13 @@ import type { Message } from "@/shared/domain/message";
 import { SOSMessage } from "./SOSMessage";
 import { MessageBubble } from "./MessageBubble";
 import { getOrCreateDeviceId } from "@/features/device/services/device-storage";
-import { Skeleton } from "@/shared/components/ui/skeleton";
-import {
-  Conversation,
-  ConversationContent,
-  ConversationEmptyState,
-} from "@/shared/components/ui/conversation";
+import { ConversationEmptyState } from "@/shared/components/ui/conversation";
 import { cn } from "@/shared/lib/utils";
 import { t } from "@/shared/lib/i18n";
 import type { Device } from "@/shared/domain/device";
 import {
-  groupMessages,
-  type GroupedMessage,
+    groupMessages,
+    type GroupedMessage,
 } from "@/shared/utils/message-grouping";
 import { fetchDevicesByIdsAction } from "@/features/device/store/saga";
 import { selectDevicesByIds } from "@/features/device/store/slice";
@@ -54,7 +49,7 @@ export function MessageList({
   const { groupId } = useParams<{ groupId: string }>();
 
   // Get messages directly from hook
-  const { messages, isLoading } = useMessages({
+  const { messages } = useMessages({
     groupId: groupId || "",
     reactive: true,
   });
@@ -162,9 +157,13 @@ export function MessageList({
       // Check if user is near bottom (within 150px)
       const { scrollTop, scrollHeight, clientHeight } = scrollElement;
       const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+      
+      // Check if the last message is from the current user
+      const lastMessage = groupedMessages[groupedMessages.length - 1].message;
+      const isLastMessageOwn = lastMessage.device_id === currentDeviceId;
 
-      // Only auto-scroll if user is within 150px of bottom
-      if (distanceFromBottom < 150) {
+      // Auto-scroll if user is within 150px of bottom OR if the last message is their own
+      if (distanceFromBottom < 150 || isLastMessageOwn) {
         if (shouldVirtualize && virtualizer) {
           // Scroll to last item in virtualized list
           virtualizer.scrollToIndex(groupedMessages.length - 1, {
@@ -173,7 +172,13 @@ export function MessageList({
           });
         } else {
           // Scroll to bottom in non-virtualized list
-          scrollElement.scrollTop = scrollElement.scrollHeight;
+          // Use requestAnimationFrame to ensure new content is rendered
+          requestAnimationFrame(() => {
+            scrollElement.scrollTo({
+              top: scrollElement.scrollHeight,
+              behavior: "smooth"
+            });
+          });
         }
       }
     }
@@ -182,6 +187,9 @@ export function MessageList({
     scrollToMessageId,
     shouldVirtualize,
     virtualizer,
+    currentDeviceId,
+    // Add groupedMessages as dependency to check last message owner
+    groupedMessages 
   ]); // Only depend on length, not full array
 
   // Scroll to specific message
@@ -231,28 +239,6 @@ export function MessageList({
   const handleMessageClick = (message: Message) => {
     onMessageClick?.(message);
   };
-
-  if (isLoading) {
-    return (
-      <Conversation className="h-full">
-        <ConversationContent>
-          {[1, 2, 3, 4, 5].map((i) => (
-            <div key={i} className={cn("flex", i % 2 === 0 && "justify-end")}>
-              <div
-                className={cn(
-                  "space-y-2 max-w-[75%]",
-                  i % 2 === 0 && "items-end"
-                )}
-              >
-                <Skeleton className="h-16 w-full rounded-2xl" />
-                <Skeleton className="h-4 w-24" />
-              </div>
-            </div>
-          ))}
-        </ConversationContent>
-      </Conversation>
-    );
-  }
 
   // Render a single message item
   const renderMessage = (grouped: GroupedMessage) => {
@@ -317,12 +303,12 @@ export function MessageList({
 
   if (messages.length === 0) {
     return (
-      <Conversation className="h-full">
+      <div className="h-full flex items-center justify-center">
         <ConversationEmptyState
           title={t("page.chat.noMessages") || "Chưa có tin nhắn nào"}
           description="Bắt đầu cuộc trò chuyện bằng cách gửi tin nhắn đầu tiên"
         />
-      </Conversation>
+      </div>
     );
   }
 

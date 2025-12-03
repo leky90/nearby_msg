@@ -83,7 +83,7 @@ func main() {
 	)
 
 	// Initialize WebSocket service
-	wsService := service.NewWebSocketService(messageService, messageRepo)
+	wsService := service.NewWebSocketService(messageService, messageRepo, pinService)
 
 	// Start WebSocket service hub
 	go wsService.Run(ctx)

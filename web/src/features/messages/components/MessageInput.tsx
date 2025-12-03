@@ -23,6 +23,8 @@ export interface MessageInputProps {
   className?: string;
   /** Callback when pin button is clicked */
   onPinClick?: () => void;
+  /** Number of pinned messages */
+  pinnedCount?: number;
 }
 
 const MAX_MESSAGE_LENGTH = 500;
@@ -78,6 +80,7 @@ export function MessageInput({
   placeholder = t("component.messageInput.placeholder"),
   className = "",
   onPinClick,
+  pinnedCount = 0,
 }: MessageInputProps) {
   const [content, setContent] = useState("");
   const [isSending, setIsSending] = useState(false);
@@ -205,15 +208,22 @@ export function MessageInput({
       <div className="flex items-end gap-2 p-4">
         {/* Pin button - left side of input */}
         {onPinClick && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onPinClick}
-            className="h-12 w-12 rounded-full shrink-0"
-            aria-label="Xem tin nhắn đã ghim"
-          >
-            <Pin className="size-5" />
-          </Button>
+          <div className="relative">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onPinClick}
+              className="h-12 w-12 rounded-full shrink-0"
+              aria-label="Xem tin nhắn đã ghim"
+            >
+              <Pin className="size-5" />
+            </Button>
+            {pinnedCount > 0 && (
+              <span className="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground pointer-events-none">
+                {pinnedCount > 9 ? "9+" : pinnedCount}
+              </span>
+            )}
+          </div>
         )}
 
         <div className="flex-1 relative">

@@ -318,7 +318,9 @@ async function pushPendingMessages(): Promise<void> {
     // check if there's another group with different ID (server-created group)
     // This handles the case where server created group with different ID
     const deviceId = getDeviceId() || '';
-    if (groupDoc.toJSON().creator_device_id === deviceId) {
+    const groupCreatorId = groupDoc.toJSON().creator_device_id;
+    // creator_device_id can be null when creator device is deleted
+    if (groupCreatorId !== null && groupCreatorId === deviceId) {
       const serverGroup = await db.groups
         .findOne({
           selector: {
@@ -554,14 +556,18 @@ async function pullDocuments(
       
       // Check if there's an optimistic group with same creator_device_id but different ID
       // This happens when server creates group with different ID than client's optimistic ID
-      const optimisticGroup = await db.groups
-        .findOne({
-          selector: {
-            creator_device_id: group.creator_device_id,
-            id: { $ne: group.id },
-          },
-        })
-        .exec();
+      // Only query by creator_device_id if it's not null
+      // RxDB doesn't allow querying with null values (QU19 error)
+      const optimisticGroup = group.creator_device_id
+        ? await db.groups
+            .findOne({
+              selector: {
+                creator_device_id: group.creator_device_id,
+                id: { $ne: group.id },
+              },
+            })
+            .exec()
+        : null;
       
       if (optimisticGroup) {
         const optimistic = optimisticGroup.toJSON() as Group;

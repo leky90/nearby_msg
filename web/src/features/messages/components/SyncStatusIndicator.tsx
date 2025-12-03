@@ -4,7 +4,7 @@
  * Uses Redux state managed by syncStatusSaga
  */
 
-import { Wifi, WifiOff, Loader2 } from "lucide-react";
+import { CheckCircle2, Hourglass, Loader2, WifiOff } from "lucide-react";
 import { useEffect } from "react";
 import { useSelector, useDispatch } from "react-redux";
 import { selectGroupSyncStatus } from "@/features/status/store/slice";
@@ -42,9 +42,9 @@ export function SyncStatusIndicator({ groupId }: SyncStatusIndicatorProps) {
       case "syncing":
         return <Loader2 className="size-3.5 animate-spin text-primary" />;
       case "pending":
-        return <WifiOff className="size-3.5 text-warning" />;
+        return <Hourglass className="size-3.5 text-warning" />;
       default:
-        return <Wifi className="size-3.5 text-safety" />;
+        return <CheckCircle2 className="size-3.5 text-green-600" />;
     }
   };
 

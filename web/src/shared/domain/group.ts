@@ -23,7 +23,7 @@ export interface Group {
   latitude: number; // -90 to 90
   longitude: number; // -180 to 180
   region_code?: string; // 2-10 characters
-  creator_device_id: string; // NanoID (21 chars)
+  creator_device_id: string | null; // NanoID (21 chars) or null when creator device is deleted
   created_at: string; // ISO timestamp
   updated_at: string; // ISO timestamp
 }

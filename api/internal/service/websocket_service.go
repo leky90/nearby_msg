@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"sync"
 	"time"
@@ -40,6 +41,7 @@ type WebSocketConnection interface {
 	SetWriteDeadline(t time.Time) error
 	SetPongHandler(h func(string) error)
 	SetPingHandler(h func(string) error)
+	NextReader() (int, io.Reader, error)
 }
 
 // WebSocketService manages WebSocket connections and message broadcasting
@@ -52,6 +54,7 @@ type WebSocketService struct {
 	mu            sync.RWMutex
 	messageService *MessageService
 	messageRepo   MessageRepository
+	pinService    *PinService
 }
 
 // BroadcastMessage represents a message to broadcast
@@ -63,10 +66,11 @@ type BroadcastMessage struct {
 // MessageRepository interface for message persistence
 type MessageRepository interface {
 	InsertMessages(ctx context.Context, messages []*domain.Message) error
+	GetByID(ctx context.Context, messageID string) (*domain.Message, error)
 }
 
 // NewWebSocketService creates a new WebSocket service
-func NewWebSocketService(messageService *MessageService, messageRepo MessageRepository) *WebSocketService {
+func NewWebSocketService(messageService *MessageService, messageRepo MessageRepository, pinService *PinService) *WebSocketService {
 	return &WebSocketService{
 		clients:        make(map[string]*Client),
 		groups:         make(map[string]map[string]bool),
@@ -75,6 +79,7 @@ func NewWebSocketService(messageService *MessageService, messageRepo MessageRepo
 		broadcast:      make(chan BroadcastMessage, 256),
 		messageService: messageService,
 		messageRepo:    messageRepo,
+		pinService:     pinService,
 	}
 }
 
@@ -395,6 +400,20 @@ func (s *WebSocketService) HandleClientMessage(ctx context.Context, client *Clie
 			return fmt.Errorf("failed to save message: %w", err)
 		}
 
+		// Validate GroupID before broadcasting
+		if payload.GroupID == "" {
+			errorMsg := WebSocketMessage{
+				Type:      "message_error",
+				Payload:   map[string]string{"error": "groupId is required"},
+				Timestamp: time.Now().UTC().Format(time.RFC3339),
+			}
+			select {
+			case client.Send <- errorMsg:
+			case <-time.After(5 * time.Second):
+			}
+			return fmt.Errorf("groupId is required")
+		}
+
 		// Convert to WebSocket message format
 		newMsg := WebSocketMessage{
 			Type: "new_message",
@@ -414,7 +433,8 @@ func (s *WebSocketService) HandleClientMessage(ctx context.Context, client *Clie
 		}
 
 		// Broadcast to all subscribers of the group
-		s.BroadcastToGroup(payload.GroupID, newMsg)
+		// Use message.GroupID (from DB) instead of payload.GroupID to ensure consistency
+		s.BroadcastToGroup(message.GroupID, newMsg)
 
 		// Send confirmation to sender
 		confirmMsg := WebSocketMessage{
@@ -438,6 +458,164 @@ func (s *WebSocketService) HandleClientMessage(ctx context.Context, client *Clie
 		case client.Send <- response:
 		case <-time.After(5 * time.Second):
 		}
+
+	case "pin_message":
+		var payload struct {
+			MessageID string  `json:"messageId"`
+			GroupID   string  `json:"groupId"`
+			Tag       *string `json:"tag,omitempty"`
+			PinnedAt  string  `json:"pinnedAt,omitempty"`
+		}
+
+		// Parse payload
+		if p, ok := msg.Payload.(map[string]interface{}); ok {
+			if mid, ok := p["messageId"].(string); ok {
+				payload.MessageID = mid
+			}
+			if gid, ok := p["groupId"].(string); ok {
+				payload.GroupID = gid
+			}
+			if tagVal, ok := p["tag"]; ok {
+				if tagStr, ok := tagVal.(string); ok {
+					payload.Tag = &tagStr
+				} else if tagVal == nil {
+					payload.Tag = nil
+				}
+			}
+			if pat, ok := p["pinnedAt"].(string); ok {
+				payload.PinnedAt = pat
+			}
+		} else {
+			payloadBytes, _ := json.Marshal(msg.Payload)
+			json.Unmarshal(payloadBytes, &payload)
+		}
+
+		if payload.MessageID == "" {
+			errorMsg := WebSocketMessage{
+				Type:      "error",
+				Payload:   map[string]string{"error": "messageId is required"},
+				Timestamp: time.Now().UTC().Format(time.RFC3339),
+			}
+			select {
+			case client.Send <- errorMsg:
+			case <-time.After(5 * time.Second):
+			}
+			return fmt.Errorf("messageId is required")
+		}
+
+		// Pin message using pin service
+		pin, err := s.pinService.PinMessage(ctx, client.DeviceID, payload.MessageID, payload.Tag)
+		if err != nil {
+			errorMsg := WebSocketMessage{
+				Type:      "error",
+				Payload:   map[string]string{"error": err.Error()},
+				Timestamp: time.Now().UTC().Format(time.RFC3339),
+			}
+			select {
+			case client.Send <- errorMsg:
+			case <-time.After(5 * time.Second):
+			}
+			return fmt.Errorf("failed to pin message: %w", err)
+		}
+
+		// Get group ID from pin (it's set by PinMessage)
+		groupID := pin.GroupID
+
+		// Broadcast message_pinned event to all subscribers of the group
+		pinnedMsg := WebSocketMessage{
+			Type: "message_pinned",
+			Payload: map[string]interface{}{
+				"messageId": pin.MessageID,
+				"groupId":   groupID,
+				"deviceId":  pin.DeviceID,
+				"pinnedAt":  pin.PinnedAt.Format(time.RFC3339),
+				"tag":       pin.Tag,
+			},
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+		}
+		s.BroadcastToGroup(groupID, pinnedMsg)
+
+	case "unpin_message":
+		var payload struct {
+			MessageID string `json:"messageId"`
+		}
+
+		// Parse payload
+		if p, ok := msg.Payload.(map[string]interface{}); ok {
+			if mid, ok := p["messageId"].(string); ok {
+				payload.MessageID = mid
+			}
+		} else {
+			payloadBytes, _ := json.Marshal(msg.Payload)
+			json.Unmarshal(payloadBytes, &payload)
+		}
+
+		if payload.MessageID == "" {
+			errorMsg := WebSocketMessage{
+				Type:      "error",
+				Payload:   map[string]string{"error": "messageId is required"},
+				Timestamp: time.Now().UTC().Format(time.RFC3339),
+			}
+			select {
+			case client.Send <- errorMsg:
+			case <-time.After(5 * time.Second):
+			}
+			return fmt.Errorf("messageId is required")
+		}
+
+		// Get message to find group ID before unpinning
+		message, err := s.messageRepo.GetByID(ctx, payload.MessageID)
+		if err != nil {
+			errorMsg := WebSocketMessage{
+				Type:      "error",
+				Payload:   map[string]string{"error": fmt.Sprintf("failed to get message: %v", err)},
+				Timestamp: time.Now().UTC().Format(time.RFC3339),
+			}
+			select {
+			case client.Send <- errorMsg:
+			case <-time.After(5 * time.Second):
+			}
+			return fmt.Errorf("failed to get message: %w", err)
+		}
+		if message == nil {
+			errorMsg := WebSocketMessage{
+				Type:      "error",
+				Payload:   map[string]string{"error": "message not found"},
+				Timestamp: time.Now().UTC().Format(time.RFC3339),
+			}
+			select {
+			case client.Send <- errorMsg:
+			case <-time.After(5 * time.Second):
+			}
+			return fmt.Errorf("message not found")
+		}
+		groupID := message.GroupID
+
+		// Unpin message using pin service
+		if err := s.pinService.UnpinMessage(ctx, client.DeviceID, payload.MessageID); err != nil {
+			errorMsg := WebSocketMessage{
+				Type:      "error",
+				Payload:   map[string]string{"error": err.Error()},
+				Timestamp: time.Now().UTC().Format(time.RFC3339),
+			}
+			select {
+			case client.Send <- errorMsg:
+			case <-time.After(5 * time.Second):
+			}
+			return fmt.Errorf("failed to unpin message: %w", err)
+		}
+
+		// Broadcast message_unpinned event to all subscribers of the group
+		unpinnedMsg := WebSocketMessage{
+			Type: "message_unpinned",
+			Payload: map[string]interface{}{
+				"messageId": payload.MessageID,
+				"groupId":   groupID,
+				"deviceId":  client.DeviceID,
+			},
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+		}
+		s.BroadcastToGroup(groupID, unpinnedMsg)
 
 	default:
 		return fmt.Errorf("unknown message type: %s", msg.Type)

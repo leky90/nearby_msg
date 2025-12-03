@@ -2,7 +2,9 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -130,6 +132,10 @@ func (w *websocketConn) WriteMessage(messageType int, data []byte) error {
 	return w.conn.WriteMessage(messageType, data)
 }
 
+func (w *websocketConn) NextReader() (int, io.Reader, error) {
+	return w.conn.NextReader()
+}
+
 // readPump pumps messages from the WebSocket connection to the hub
 func (h *WebSocketHandler) readPump(client *service.Client) {
 	defer func() {
@@ -147,14 +153,44 @@ func (h *WebSocketHandler) readPump(client *service.Client) {
 		return nil
 	})
 
+	// Set ping handler to automatically respond with pong control frame
+	// This prevents ping control frames from being read as JSON messages
+	client.Conn.SetPingHandler(func(string) error {
+		client.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		// Respond with pong control frame (not JSON message)
+		// gorilla/websocket will handle this automatically, but we set deadline
+		return nil
+	})
+
 	for {
-		var msg service.WebSocketMessage
-		err := client.Conn.ReadJSON(&msg)
+		// Read message type first to handle control frames
+		messageType, reader, err := client.Conn.NextReader()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				fmt.Printf("WebSocket error: %v\n", err)
 			}
 			break
+		}
+
+		// Skip control frames (ping/pong/close) - they are handled automatically
+		if messageType == websocket.PingMessage || messageType == websocket.PongMessage || messageType == websocket.CloseMessage {
+			// Control frames are handled by SetPingHandler/SetPongHandler
+			// Just update deadline and continue
+			client.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+			continue
+		}
+
+		// Only process text/binary messages as JSON
+		if messageType != websocket.TextMessage && messageType != websocket.BinaryMessage {
+			continue
+		}
+
+		// Decode JSON message
+		var msg service.WebSocketMessage
+		decoder := json.NewDecoder(reader)
+		if err := decoder.Decode(&msg); err != nil {
+			fmt.Printf("Failed to decode WebSocket message: %v\n", err)
+			continue
 		}
 
 		// Handle message

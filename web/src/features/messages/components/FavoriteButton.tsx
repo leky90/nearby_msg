@@ -37,7 +37,7 @@ export function FavoriteButton({ groupId, className }: FavoriteButtonProps) {
       size="sm"
       onClick={handleFavoriteToggle}
       className={cn("h-8 w-8 p-0", isFavorited && "text-yellow-500", className)}
-      aria-label={isFavorited ? t("group.unfavorite") : t("group.favorite")}
+      aria-label={isFavorited ? t("button.unfavorite") : t("button.favorite")}
     >
       <Star className={cn("h-4 w-4", isFavorited && "fill-current")} />
     </Button>

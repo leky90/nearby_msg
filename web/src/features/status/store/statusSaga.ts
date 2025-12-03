@@ -107,14 +107,42 @@ function createUserStatusEventChannel(): EventChannel<UserStatus | null> {
     getDatabase().then((db) => {
       if (!isActive) return;
       
-      // Subscribe to current device's user status
-      const query = db.user_status.find({
-        selector: { device_id: deviceId },
+      // Subscribe to collection changes using collection.$ observable
+      // This emits whenever ANY document in the collection changes (insert, update, delete)
+      const subscription = db.user_status.$.subscribe(async (changeEvent) => {
+        if (!isActive) return;
+        
+        try {
+          // After any change, re-query user status for current device
+          const query = db.user_status.find({
+            selector: { device_id: deviceId },
+          });
+          const docs = await query.exec();
+          const status = docs.length > 0 ? (docs[0].toJSON() as UserStatus) : null;
+          emit(status);
+          log.debug('User status RxDB collection change detected', { 
+            changeType: changeEvent.operation,
+            documentId: changeEvent.documentData?.id,
+            hasStatus: status !== null
+          });
+        } catch (err) {
+          log.error('Failed to query user status after collection change', err);
+        }
       });
-      const subscription = query.$.subscribe((docs) => {
+      
+      // Also emit initial state immediately
+      db.user_status.find({
+        selector: { device_id: deviceId },
+      }).exec().then((docs) => {
         if (!isActive) return;
         const status = docs.length > 0 ? (docs[0].toJSON() as UserStatus) : null;
         emit(status);
+        log.debug('User status RxDB initial state emitted', { hasStatus: status !== null });
+      }).catch((err) => {
+        log.error('Failed to emit initial user status state', err);
+        if (isActive) {
+          emit(null); // Emit null on error
+        }
       });
       
       unsubscribe = () => subscription.unsubscribe();

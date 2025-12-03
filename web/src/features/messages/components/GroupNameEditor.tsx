@@ -37,7 +37,10 @@ export function GroupNameEditor({ group }: GroupNameEditorProps) {
   const device = useSelector((state: RootState) => selectDevice(state));
   const isCreator = useMemo(() => {
     if (!device?.id) return false;
-    return group.creator_device_id === device.id;
+    // creator_device_id can be null when creator device is deleted
+    return (
+      group.creator_device_id !== null && group.creator_device_id === device.id
+    );
   }, [group.creator_device_id, device?.id]);
 
   // Form state managed by react-hook-form (mode: onBlur for inline editing)

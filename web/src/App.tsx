@@ -10,10 +10,10 @@ import { showToast } from "@/shared/utils/toast";
 import { PWAUpdateNotification } from "@/shared/components/PWAUpdateNotification";
 import { initAppAction } from "@/features/navigation/store/appSlice";
 import {
-  selectInitializationStatus,
-  selectOnboardingRequired,
-} from "@/features/navigation/store/appSlice";
-import { selectDeviceLoading } from "@/features/device/store/slice";
+  selectDevice,
+  selectDeviceLoading,
+  selectIsRegistered,
+} from "@/features/device/store/slice";
 import type { RootState } from "@/store";
 
 const router = createAppRouter();
@@ -21,26 +21,24 @@ const router = createAppRouter();
 function App() {
   const dispatch = useDispatch();
 
-  // Read initialization state from Redux
-  const initializationStatus = useSelector((state: RootState) =>
-    selectInitializationStatus(state)
-  );
-  const onboardingRequired = useSelector((state: RootState) =>
-    selectOnboardingRequired(state)
-  );
+  // Read device state from Redux
+  const device = useSelector((state: RootState) => selectDevice(state));
   const deviceLoading = useSelector((state: RootState) =>
     selectDeviceLoading(state)
+  );
+  const isRegistered = useSelector((state: RootState) =>
+    selectIsRegistered(state)
   );
 
   // Initialize app on mount - dispatch action to saga
   // Note: In development, React StrictMode will cause this to run twice
   // The saga has guards to prevent duplicate initialization
   useEffect(() => {
-    // Only initialize if status is idle (not already initializing/initialized)
-    if (initializationStatus === "idle") {
+    // Initialize if device is not loaded yet (not registered or loading)
+    if (!isRegistered && !deviceLoading) {
       dispatch(initAppAction());
     }
-  }, [dispatch, initializationStatus]);
+  }, [dispatch, isRegistered, deviceLoading]);
 
   // Monitor storage quota
   useEffect(() => {
@@ -59,12 +57,14 @@ function App() {
     return cleanup;
   }, []);
 
-  // Show onboarding if required
-  if (
-    onboardingRequired &&
-    initializationStatus === "ready" &&
-    !deviceLoading
-  ) {
+  // Determine if onboarding is needed based on device state
+  // Onboarding needed if:
+  // 1. Device is not registered (device === null), OR
+  // 2. Device exists but has no nickname (needs onboarding to set nickname)
+  const needsOnboarding = !device || !device.nickname;
+
+  // Show onboarding if needed and not loading
+  if (needsOnboarding && !deviceLoading) {
     return (
       <ErrorBoundary>
         <OnboardingScreen />
@@ -73,30 +73,12 @@ function App() {
     );
   }
 
-  // Show loading state while initializing or loading device
-  if (
-    initializationStatus === "checking" ||
-    initializationStatus === "loading" ||
-    deviceLoading
-  ) {
+  // Show loading state while device is loading
+  if (deviceLoading) {
     return (
       <ErrorBoundary>
         <div className="flex items-center justify-center min-h-screen">
           <div className="text-muted-foreground">Đang tải...</div>
-        </div>
-        <Toaster />
-      </ErrorBoundary>
-    );
-  }
-
-  // Show error state if initialization failed
-  if (initializationStatus === "error") {
-    return (
-      <ErrorBoundary>
-        <div className="flex items-center justify-center min-h-screen">
-          <div className="text-muted-foreground">
-            Lỗi khởi tạo ứng dụng. Vui lòng tải lại trang.
-          </div>
         </div>
         <Toaster />
       </ErrorBoundary>

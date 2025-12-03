@@ -3,14 +3,14 @@
  * Simple chat message bubble with distance and time
  */
 
-import { useEffect, useMemo, memo } from "react";
+import { useEffect, useMemo, memo, useRef } from "react";
 import { useSelector, useDispatch } from "react-redux";
 import {
   Pin,
   PinOff,
   Check,
-  CheckCheck,
-  Clock,
+  CheckCircle2,
+  Hourglass,
   RefreshCw,
   AlertCircle,
 } from "lucide-react";
@@ -28,6 +28,7 @@ import { calculateDistance } from "@/shared/domain/group";
 import { formatDistance as formatDistanceUtil } from "@/shared/utils/distance";
 import { selectDeviceLocation } from "@/features/navigation/store/appSlice";
 import { selectDeviceById } from "@/features/device/store/slice";
+import { getOrCreateDeviceId } from "@/features/device/services/device-storage";
 import { fetchDevicesByIdsAction } from "@/features/device/store/saga";
 import { selectPinnedMessagesByGroupId } from "@/features/messages/store/slice";
 import { selectGroupById } from "@/features/groups/store/slice";
@@ -81,11 +82,22 @@ export const MessageBubble = memo(
     });
 
     // Dispatch action to fetch device if not in Redux store
+    // Use useRef to track if we've already dispatched for this device_id to prevent loops
+    const fetchedDeviceIdsRef = useRef<Set<string>>(new Set());
     useEffect(() => {
       if (!device && !isOwn && message.device_id && !senderDevice) {
-        // Dispatch action to fetch device
-        // This will trigger saga to fetch from RxDB, which triggers listener to update Redux
-        dispatch(fetchDevicesByIdsAction([message.device_id]));
+        // Only dispatch if we haven't fetched this device_id yet
+        if (!fetchedDeviceIdsRef.current.has(message.device_id)) {
+          fetchedDeviceIdsRef.current.add(message.device_id);
+          // Dispatch action to fetch device
+          // This will trigger saga to fetch from RxDB, which triggers listener to update Redux
+          dispatch(fetchDevicesByIdsAction([message.device_id]));
+        }
+      } else if (device || senderDevice) {
+        // If device is now available, remove from tracking set
+        if (message.device_id) {
+          fetchedDeviceIdsRef.current.delete(message.device_id);
+        }
       }
     }, [device, isOwn, message.device_id, senderDevice, dispatch]);
 
@@ -104,10 +116,26 @@ export const MessageBubble = memo(
       selectPinnedMessagesByGroupId(state, message.group_id)
     );
 
-    // Check if this message is pinned (from Redux state)
-    const pinned = useMemo(() => {
-      return pinnedMessages.some((pin) => pin.message_id === message.id);
+    // Check if this message is pinned by ANYONE in the group (for highlight)
+    const isPinnedByAnyone = useMemo(() => {
+      return pinnedMessages.some((pin) => pin.message.id === message.id);
     }, [pinnedMessages, message.id]);
+
+    // Check if this message is pinned by CURRENT USER (for unpin button)
+    const isPinnedByCurrentUser = useMemo(() => {
+      const currentDeviceId = getOrCreateDeviceId();
+      return pinnedMessages.some(
+        (pin) =>
+          pin.message.id === message.id &&
+          pin.pinned_by_device_id === currentDeviceId
+      );
+    }, [pinnedMessages, message.id]);
+
+    // Only show pin button if message is not pinned by anyone, or pinned by current user
+    // Hide pin button if message is pinned by another user
+    const shouldShowPinButton = useMemo(() => {
+      return !isPinnedByAnyone || isPinnedByCurrentUser;
+    }, [isPinnedByAnyone, isPinnedByCurrentUser]);
 
     // Calculate distance from sender using useMemo (no async needed)
     const distance = useMemo(() => {
@@ -140,7 +168,7 @@ export const MessageBubble = memo(
       e.stopPropagation();
 
       try {
-        if (pinned) {
+        if (isPinnedByCurrentUser) {
           await unpinMessage(message.id);
         } else {
           await pinMessage(message.id, message.group_id);
@@ -148,10 +176,17 @@ export const MessageBubble = memo(
         // Refresh pinned messages for this group so UI updates immediately
         dispatch(fetchPinnedMessagesAction(message.group_id));
       } catch (err) {
+        const errorMessage =
+          err instanceof Error ? err.message : "Không thể ghim tin nhắn";
+
         log.error("Failed to toggle pin", err, {
           messageId: message.id,
-          pinned,
+          isPinnedByCurrentUser,
         });
+
+        // Show toast notification for user
+        const { showToast } = await import("@/shared/utils/toast");
+        showToast(errorMessage, "error");
       }
     };
 
@@ -187,20 +222,17 @@ export const MessageBubble = memo(
         {/* Message wrapper with pin button outside */}
         <div className={cn("flex items-start gap-2", isOwn && "justify-end")}>
           {/* Pin button for owner - on the left */}
-          {isOwn && (
+          {isOwn && shouldShowPinButton && (
             <Button
               variant="ghost"
               size="sm"
-              className={cn(
-                "h-5 w-5 p-0 shrink-0 transition-colors mt-1",
-                pinned
-                  ? "text-yellow-600 hover:text-yellow-700 hover:bg-yellow-100 dark:hover:bg-yellow-900/20"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
-              )}
+              className="h-5 w-5 p-0 shrink-0 transition-colors mt-1 text-muted-foreground hover:text-foreground hover:bg-muted"
               onClick={handlePinClick}
-              aria-label={pinned ? "Bỏ ghim tin nhắn" : "Ghim tin nhắn"}
+              aria-label={
+                isPinnedByCurrentUser ? "Bỏ ghim tin nhắn" : "Ghim tin nhắn"
+              }
             >
-              {pinned ? (
+              {isPinnedByCurrentUser ? (
                 <PinOff className="h-3.5 w-3.5" />
               ) : (
                 <Pin className="h-3.5 w-3.5" />
@@ -214,7 +246,8 @@ export const MessageBubble = memo(
               "relative",
               // Width / interaction applied trực tiếp cho bubble
               onClick && "cursor-pointer hover:opacity-90",
-              pinned && "ring-2 ring-yellow-400 ring-offset-1 rounded-lg"
+              isPinnedByAnyone &&
+                "ring-2 ring-pink-400 ring-offset-1 rounded-lg"
             )}
             onClick={handleClick}
           >
@@ -229,17 +262,15 @@ export const MessageBubble = memo(
                   : "text-muted-foreground"
               )}
             >
-              {/* Pinned indicator */}
-              {pinned && <Pin className="h-3 w-3 text-yellow-600" />}
               <span>{formatMessageTime(message.created_at)}</span>
               {isOwn && (
                 <div className="flex items-center gap-0.5">
                   {message.sync_status === "synced" ? (
-                    <CheckCheck className="h-3 w-3 text-green-600" />
+                    <CheckCircle2 className="h-3 w-3 text-green-600" />
                   ) : message.sync_status === "syncing" ? (
                     <RefreshCw className="h-3 w-3 text-blue-600 animate-spin" />
                   ) : message.sync_status === "pending" ? (
-                    <Clock className="h-3 w-3 text-yellow-600" />
+                    <Hourglass className="h-3 w-3 text-yellow-600" />
                   ) : message.sync_status === "failed" ? (
                     <AlertCircle className="h-3 w-3 text-red-600" />
                   ) : (
@@ -261,7 +292,7 @@ export const MessageBubble = memo(
               >
                 {message.sync_status === "pending" && (
                   <>
-                    <Clock className="h-2.5 w-2.5 text-yellow-600" />
+                    <Hourglass className="h-2.5 w-2.5 text-yellow-600" />
                     <span className="text-yellow-600">Đang chờ</span>
                   </>
                 )}
@@ -282,20 +313,17 @@ export const MessageBubble = memo(
           </MessageContent>
 
           {/* Pin button for other users - on the right */}
-          {!isOwn && (
+          {!isOwn && shouldShowPinButton && (
             <Button
               variant="ghost"
               size="sm"
-              className={cn(
-                "h-5 w-5 p-0 shrink-0 transition-colors mt-1",
-                pinned
-                  ? "text-yellow-600 hover:text-yellow-700 hover:bg-yellow-100 dark:hover:bg-yellow-900/20"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
-              )}
+              className="h-5 w-5 p-0 shrink-0 transition-colors mt-1 text-muted-foreground hover:text-foreground hover:bg-muted"
               onClick={handlePinClick}
-              aria-label={pinned ? "Bỏ ghim tin nhắn" : "Ghim tin nhắn"}
+              aria-label={
+                isPinnedByCurrentUser ? "Bỏ ghim tin nhắn" : "Ghim tin nhắn"
+              }
             >
-              {pinned ? (
+              {isPinnedByCurrentUser ? (
                 <PinOff className="h-3.5 w-3.5" />
               ) : (
                 <Pin className="h-3.5 w-3.5" />

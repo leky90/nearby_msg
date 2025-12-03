@@ -54,7 +54,7 @@ export function ChatHeader({ className }: ChatHeaderProps) {
   const navigate = useNavigate();
   const dispatch = useDispatch();
   const { groupId } = useParams<{ groupId: string }>();
-  
+
   // Get group directly from Redux store
   const group = useSelector((state: RootState) =>
     groupId ? selectGroupById(state, groupId) : null
@@ -91,7 +91,7 @@ export function ChatHeader({ className }: ChatHeaderProps) {
           size="sm"
           onClick={handleBack}
           className="h-8 w-8 p-0 shrink-0"
-          aria-label={t("navigation.back")}
+          aria-label={t("button.back")}
         >
           <ArrowLeft className="h-4 w-4" />
         </Button>

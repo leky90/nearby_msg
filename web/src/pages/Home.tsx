@@ -10,7 +10,7 @@ import {
   setActiveTab,
   type TabType,
 } from "@/features/navigation/store/slice";
-import { selectOnboardingRequired } from "@/features/navigation/store/appSlice";
+import { selectDevice } from "@/features/device/store/slice";
 import type { RootState } from "@/store";
 import { useSwipeGesture } from "@/shared/hooks/useSwipeGesture";
 import { BottomNavigation } from "@/features/navigation/components/BottomNavigation";
@@ -27,25 +27,25 @@ const tabOrder: TabType[] = ["sos", "following", "explore", "status"];
 export function Home() {
   const dispatch = useDispatch();
   const activeTab = useSelector((state: RootState) => selectActiveTab(state));
-  const onboardingRequired = useSelector((state: RootState) =>
-    selectOnboardingRequired(state)
-  );
-  const prevOnboardingRequiredRef = useRef<boolean | undefined>(undefined);
+  const device = useSelector((state: RootState) => selectDevice(state));
+  const prevDeviceRef = useRef<typeof device | undefined>(undefined);
 
-  // Redirect to explore tab when onboarding is completed (onboardingRequired changes from true to false)
+  // Redirect to explore tab when onboarding is completed (device gets nickname)
   useEffect(() => {
-    const prevOnboardingRequired = prevOnboardingRequiredRef.current;
-    prevOnboardingRequiredRef.current = onboardingRequired;
+    const prevDevice = prevDeviceRef.current;
+    prevDeviceRef.current = device;
 
-    // Only redirect if onboarding just completed (changed from true to false)
+    // Only redirect if device just got a nickname (onboarding completed)
     if (
-      prevOnboardingRequired === true &&
-      onboardingRequired === false &&
+      prevDevice &&
+      !prevDevice.nickname &&
+      device &&
+      device.nickname &&
       activeTab !== "explore"
     ) {
       dispatch(setActiveTab("explore"));
     }
-  }, [onboardingRequired, activeTab, dispatch]);
+  }, [device, activeTab, dispatch]);
 
   const handleSetActiveTab = (tab: TabType) => {
     dispatch(setActiveTab(tab));

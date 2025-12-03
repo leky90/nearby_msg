@@ -75,14 +75,14 @@ export function DeviceStatus({
     }
 
     if (battery.charging) {
-      return "text-safety font-semibold";
+      return "text-primary font-semibold";
     }
 
-    if (battery.level <= 0.2) {
+    if (battery.level < 0.25) {
       return "text-destructive font-semibold";
     }
 
-    if (battery.level <= 0.5) {
+    if (battery.level < 0.5) {
       return "text-warning font-semibold";
     }
 

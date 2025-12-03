@@ -18,7 +18,7 @@ import {
   setJWTToken,
   clearDevice,
 } from './slice';
-import { setOnboardingRequired, setInitializationStatus } from "@/features/navigation/store/appSlice";
+// Removed initializationStatus and onboardingRequired - using device state directly
 import { getDatabase } from "@/shared/services/db";
 import { pullDocuments } from "@/features/replication/services/replication-sync";
 import { log } from "@/shared/lib/logging/logger";
@@ -185,10 +185,8 @@ function* handleRegisterDevice(action: { type: string; payload?: DeviceCreateReq
     yield put(setJWTToken(response.token));
     setToken(response.token);
     
-    // Clear onboarding requirement since device is now registered
-    yield put(setOnboardingRequired(false));
-    
     // Set active tab to explore after successful registration
+    // App.tsx will automatically hide onboarding when device has nickname
     yield put({ type: 'navigation/setActiveTab', payload: 'explore' });
     
     // If device has nickname, trigger service startup
@@ -301,12 +299,11 @@ function* handleClearDevice() {
     setToken('');
     log.info('[CLEAR_DEVICE] Step 6: Token cleared');
     
-    // Set onboarding required and set initialization status to ready
-    // This ensures App.tsx immediately shows OnboardingScreen
-    log.info('[CLEAR_DEVICE] Step 7: Setting onboarding required and setting initialization to ready');
-    yield put(setOnboardingRequired(true));
-    yield put(setInitializationStatus({ status: 'ready' }));
-    log.info('[CLEAR_DEVICE] Step 7: Onboarding required set, initialization set to ready');
+    // Ensure deviceLoading is false so onboarding can be displayed
+    // App.tsx will automatically show onboarding when device === null
+    log.info('[CLEAR_DEVICE] Step 7: Setting deviceLoading to false');
+    yield put(setDeviceLoading(false));
+    log.info('[CLEAR_DEVICE] Step 7: DeviceLoading set to false - App.tsx will show onboarding automatically');
     
     log.info('[CLEAR_DEVICE] Step 8: All user data cleared, onboarding required - PROCESS COMPLETE');
   } catch (error) {
@@ -360,12 +357,37 @@ function createDevicesEventChannel(): EventChannel<Device[]> {
     getDatabase().then((db) => {
       if (!isActive) return;
       
-      // Subscribe to all devices changes
-      const query = db.devices.find();
-      const subscription = query.$.subscribe((docs) => {
+      // Subscribe to collection changes using collection.$ observable
+      // This emits whenever ANY document in the collection changes (insert, update, delete)
+      const subscription = db.devices.$.subscribe(async (changeEvent) => {
+        if (!isActive) return;
+        
+        try {
+          // After any change, re-query all devices to get the latest state
+          const allDevices = await db.devices.find().exec();
+          const devices = allDevices.map((doc) => doc.toJSON() as Device);
+          emit(devices);
+          log.debug('Devices RxDB collection change detected', { 
+            changeType: changeEvent.operation,
+            documentId: changeEvent.documentData?.id,
+            devicesCount: devices.length 
+          });
+        } catch (err) {
+          log.error('Failed to query devices after collection change', err);
+        }
+      });
+      
+      // Also emit initial state immediately
+      db.devices.find().exec().then((docs) => {
         if (!isActive) return;
         const devices = docs.map((doc) => doc.toJSON() as Device);
         emit(devices);
+        log.debug('Devices RxDB initial state emitted', { count: devices.length });
+      }).catch((err) => {
+        log.error('Failed to emit initial devices state', err);
+        if (isActive) {
+          emit([]); // Emit empty array on error
+        }
       });
       
       unsubscribe = () => subscription.unsubscribe();

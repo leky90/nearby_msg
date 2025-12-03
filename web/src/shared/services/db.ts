@@ -3,11 +3,16 @@
  * Provides offline-first data storage using IndexedDB
  */
 
-import { createRxDatabase, type RxDatabase, type RxCollection, addRxPlugin } from 'rxdb';
-import { getRxStorageDexie } from 'rxdb/plugins/storage-dexie';
-import { RxDBDevModePlugin } from 'rxdb/plugins/dev-mode';
-import { wrappedValidateAjvStorage } from 'rxdb/plugins/validate-ajv';
-import type { Subscription } from 'rxjs';
+import {
+  createRxDatabase,
+  type RxDatabase,
+  type RxCollection,
+  addRxPlugin,
+} from "rxdb";
+import { getRxStorageDexie } from "rxdb/plugins/storage-dexie";
+import { RxDBDevModePlugin } from "rxdb/plugins/dev-mode";
+import { wrappedValidateAjvStorage } from "rxdb/plugins/validate-ajv";
+import type { Subscription } from "rxjs";
 import { log } from "@/shared/lib/logging/logger";
 import type { Device } from "@/shared/domain/device";
 import type { Group } from "@/shared/domain/group";
@@ -37,133 +42,159 @@ function getStorage() {
 // Define collection schemas
 const deviceSchema = {
   version: 0,
-  primaryKey: 'id',
-  type: 'object',
+  primaryKey: "id",
+  type: "object",
   properties: {
-    id: { type: 'string', maxLength: 100 },
-    nickname: { type: 'string', maxLength: 50 },
-    public_key: { type: 'string' },
-    created_at: { type: 'string', maxLength: 100 },
-    updated_at: { type: 'string', maxLength: 100 },
+    id: { type: "string", maxLength: 100 },
+    nickname: { type: "string", maxLength: 50 },
+    public_key: { type: "string" },
+    created_at: { type: "string", maxLength: 100 },
+    updated_at: { type: "string", maxLength: 100 },
   },
-  required: ['id', 'nickname', 'created_at', 'updated_at'],
+  required: ["id", "nickname", "created_at", "updated_at"],
   // Primary key is automatically indexed, don't include it in indexes array
   indexes: [],
 } as const;
 
 const groupSchema = {
   version: 0,
-  primaryKey: 'id',
-  type: 'object',
+  primaryKey: "id",
+  type: "object",
   properties: {
-    id: { type: 'string', maxLength: 100 },
-    name: { type: 'string', maxLength: 100 },
-    type: { type: 'string' },
-    latitude: { type: 'number' },
-    longitude: { type: 'number' },
-    region_code: { type: 'string' },
-    creator_device_id: { type: 'string', maxLength: 100 },
-    created_at: { type: 'string', maxLength: 100 },
-    updated_at: { type: 'string', maxLength: 100 },
+    id: { type: "string", maxLength: 100 },
+    name: { type: "string", maxLength: 100 },
+    type: { type: "string" },
+    latitude: { type: "number" },
+    longitude: { type: "number" },
+    region_code: { type: "string" },
+    creator_device_id: { type: ["string", "null"], maxLength: 100 }, // Nullable: can be null when creator device is deleted
+    created_at: { type: "string", maxLength: 100 },
+    updated_at: { type: "string", maxLength: 100 },
   },
-  required: ['id', 'name', 'type', 'latitude', 'longitude', 'creator_device_id', 'created_at', 'updated_at'],
+  required: [
+    "id",
+    "name",
+    "type",
+    "latitude",
+    "longitude",
+    "created_at",
+    "updated_at",
+  ], // creator_device_id is optional (can be null)
   // Primary key is automatically indexed, don't include it in indexes array
-  indexes: ['creator_device_id'],
+  // Note: creator_device_id cannot be indexed because it's nullable (type: ['string', 'null'])
+  // Queries on creator_device_id will still work but may be slower without index
+  indexes: [],
 } as const;
 
 const messageSchema = {
   version: 0,
-  primaryKey: 'id',
-  type: 'object',
+  primaryKey: "id",
+  type: "object",
   properties: {
-    id: { type: 'string', maxLength: 100 },
-    group_id: { type: 'string', maxLength: 100 },
-    device_id: { type: 'string', maxLength: 100 },
-    content: { type: 'string', maxLength: 500 },
-    message_type: { type: 'string' },
-    sos_type: { type: 'string' },
-    tags: { type: 'array', items: { type: 'string' } },
-    pinned: { type: 'boolean' },
-    created_at: { type: 'string', maxLength: 100 }, // Required maxLength for index
-    device_sequence: { type: 'number' },
-    synced_at: { type: 'string', maxLength: 100 },
-    sync_status: { type: 'string', maxLength: 50 }, // Required maxLength for index
+    id: { type: "string", maxLength: 100 },
+    group_id: { type: "string", maxLength: 100 },
+    device_id: { type: "string", maxLength: 100 },
+    content: { type: "string", maxLength: 500 },
+    message_type: { type: "string" },
+    sos_type: { type: "string" },
+    tags: { type: "array", items: { type: "string" } },
+    pinned: { type: "boolean" },
+    created_at: { type: "string", maxLength: 100 }, // Required maxLength for index
+    device_sequence: { type: "number" },
+    synced_at: { type: "string", maxLength: 100 },
+    sync_status: { type: "string", maxLength: 50 }, // Required maxLength for index
   },
-  required: ['id', 'group_id', 'device_id', 'content', 'message_type', 'pinned', 'created_at'],
+  required: [
+    "id",
+    "group_id",
+    "device_id",
+    "content",
+    "message_type",
+    "pinned",
+    "created_at",
+  ],
   // Primary key is automatically indexed, don't include it in indexes array
-  indexes: ['group_id', 'device_id', ['group_id', 'created_at']],
+  indexes: ["group_id", "device_id", ["group_id", "created_at"]],
 } as const;
 
 const favoriteGroupSchema = {
   version: 0,
-  primaryKey: 'id',
-  type: 'object',
+  primaryKey: "id",
+  type: "object",
   properties: {
-    id: { type: 'string', maxLength: 100 },
-    device_id: { type: 'string', maxLength: 100 },
-    group_id: { type: 'string', maxLength: 100 },
-    created_at: { type: 'string' },
+    id: { type: "string", maxLength: 100 },
+    device_id: { type: "string", maxLength: 100 },
+    group_id: { type: "string", maxLength: 100 },
+    created_at: { type: "string" },
   },
-  required: ['id', 'device_id', 'group_id', 'created_at'],
+  required: ["id", "device_id", "group_id", "created_at"],
   // Primary key is automatically indexed, don't include it in indexes array
-  indexes: ['device_id', 'group_id'],
+  indexes: ["device_id", "group_id"],
 } as const;
 
 const pinnedMessageSchema = {
   version: 0,
-  primaryKey: 'id',
-  type: 'object',
+  primaryKey: "id",
+  type: "object",
   properties: {
-    id: { type: 'string', maxLength: 100 },
-    message_id: { type: 'string', maxLength: 100 },
-    group_id: { type: 'string', maxLength: 100 },
-    device_id: { type: 'string', maxLength: 100 },
-    pinned_at: { type: 'string', maxLength: 100 },
-    tag: { type: 'string', maxLength: 50 },
+    id: { type: "string", maxLength: 100 },
+    message_id: { type: "string", maxLength: 100 },
+    group_id: { type: "string", maxLength: 100 },
+    device_id: { type: "string", maxLength: 100 },
+    pinned_at: { type: "string", maxLength: 100 },
+    tag: { type: "string", maxLength: 50 },
   },
-  required: ['id', 'message_id', 'group_id', 'device_id', 'pinned_at'],
+  required: ["id", "message_id", "group_id", "device_id", "pinned_at"],
   // Primary key is automatically indexed, don't include it in indexes array
-  indexes: ['message_id', 'group_id', 'device_id'],
+  indexes: ["message_id", "group_id", "device_id"],
 } as const;
 
 const userStatusSchema = {
   version: 0,
-  primaryKey: 'id',
-  type: 'object',
+  primaryKey: "id",
+  type: "object",
   properties: {
-    id: { type: 'string', maxLength: 100 },
-    device_id: { type: 'string', maxLength: 100 },
-    status_type: { type: 'string' },
-    description: { type: 'string', maxLength: 200 },
-    created_at: { type: 'string', maxLength: 100 },
-    updated_at: { type: 'string', maxLength: 100 },
+    id: { type: "string", maxLength: 100 },
+    device_id: { type: "string", maxLength: 100 },
+    status_type: { type: "string" },
+    description: { type: "string", maxLength: 200 },
+    created_at: { type: "string", maxLength: 100 },
+    updated_at: { type: "string", maxLength: 100 },
   },
-  required: ['id', 'device_id', 'status_type', 'created_at', 'updated_at'],
+  required: ["id", "device_id", "status_type", "created_at", "updated_at"],
   // Primary key is automatically indexed, don't include it in indexes array
-  indexes: ['device_id'],
+  indexes: ["device_id"],
 } as const;
 
 const mutationSchema = {
   version: 0,
-  primaryKey: 'id',
-  type: 'object',
+  primaryKey: "id",
+  type: "object",
   properties: {
-    id: { type: 'string', maxLength: 100 },
-    type: { type: 'string', maxLength: 50 },
-    target_collection: { type: 'string', maxLength: 50 }, // Renamed from 'collection' - it's a reserved word in RxDB
-    entity_id: { type: 'string', maxLength: 100 },
-    payload: { type: 'object' },
-    sync_status: { type: 'string', maxLength: 50 }, // Required maxLength for index
-    created_at: { type: 'string', maxLength: 100 },
-    synced_at: { type: 'string', maxLength: 100 },
-    error_message: { type: 'string', maxLength: 500 }, // Renamed from 'error' - it's a reserved word in RxDB
-    retry_count: { type: 'number' },
+    id: { type: "string", maxLength: 100 },
+    type: { type: "string", maxLength: 50 },
+    target_collection: { type: "string", maxLength: 50 }, // Renamed from 'collection' - it's a reserved word in RxDB
+    entity_id: { type: "string", maxLength: 100 },
+    payload: { type: "object" },
+    sync_status: { type: "string", maxLength: 50 }, // Required maxLength for index
+    created_at: { type: "string", maxLength: 100 },
+    synced_at: { type: "string", maxLength: 100 },
+    error_message: { type: "string", maxLength: 500 }, // Renamed from 'error' - it's a reserved word in RxDB
+    retry_count: { type: "number" },
   },
   // entity_id must be required because RxDB creates composite index ["_deleted", "entity_id", "id"]
   // Dexie storage requires all fields in composite indexes to be required
-  required: ['id', 'type', 'target_collection', 'entity_id', 'sync_status', 'created_at', 'retry_count'],
+  required: [
+    "id",
+    "type",
+    "target_collection",
+    "entity_id",
+    "sync_status",
+    "created_at",
+    "retry_count",
+  ],
   // Primary key is automatically indexed, don't include it in indexes array
-  indexes: ['target_collection', 'sync_status'],
+  indexes: ["target_collection", "sync_status"],
 } as const;
 
 // Database type definition
@@ -179,10 +210,10 @@ export type NearbyMsgDatabase = RxDatabase<{
 
 // Database schema version - increment this when schema structure changes
 // This version tracks overall database schema changes, not individual collection versions
-// Incremented to 8 to force delete old databases with DXE1 errors (made entity_id required for Dexie composite index)
-const DATABASE_SCHEMA_VERSION = 8;
+// Incremented to 10 to remove creator_device_id from indexes (cannot index nullable fields)
+const DATABASE_SCHEMA_VERSION = 10;
 
-const DB_VERSION_KEY = 'nearby_msg_db_version';
+const DB_VERSION_KEY = "nearby_msg_db_version";
 
 let dbInstance: NearbyMsgDatabase | null = null;
 let initPromise: Promise<NearbyMsgDatabase> | null = null;
@@ -214,15 +245,15 @@ export async function initDatabase(): Promise<NearbyMsgDatabase> {
     // Check if database version has changed - if so, delete old database
     const storedVersion = localStorage.getItem(DB_VERSION_KEY);
     const currentVersion = String(DATABASE_SCHEMA_VERSION);
-    
+
     if (!storedVersion || storedVersion !== currentVersion) {
       if (storedVersion) {
-        log.info('Database schema version changed, deleting old database', {
+        log.info("Database schema version changed, deleting old database", {
           oldVersion: storedVersion,
           newVersion: currentVersion,
         });
       } else {
-        log.info('No stored database version found, initializing', {
+        log.info("No stored database version found, initializing", {
           version: currentVersion,
         });
       }
@@ -230,8 +261,8 @@ export async function initDatabase(): Promise<NearbyMsgDatabase> {
       // This avoids DXE1 errors when trying to remove corrupted databases
       // Must delete ALL possible database names that RxDB/Dexie might use
       try {
-        const dbName = 'nearby_msg';
-        if (typeof indexedDB !== 'undefined') {
+        const dbName = "nearby_msg";
+        if (typeof indexedDB !== "undefined") {
           // Try all possible database names that RxDB/Dexie might create
           const possibleNames = [
             `rxdb-${dbName}`,
@@ -243,7 +274,7 @@ export async function initDatabase(): Promise<NearbyMsgDatabase> {
             `${dbName}-0`,
             `${dbName}-1`,
           ];
-          
+
           // Delete all databases in parallel and wait for all to complete
           await Promise.all(
             possibleNames.map(async (name) => {
@@ -251,36 +282,47 @@ export async function initDatabase(): Promise<NearbyMsgDatabase> {
                 const deleteReq = indexedDB.deleteDatabase(name);
                 await new Promise<void>((resolve) => {
                   deleteReq.onsuccess = () => {
-                    log.debug('Deleted IndexedDB database', { name });
+                    log.debug("Deleted IndexedDB database", { name });
                     resolve();
                   };
                   deleteReq.onerror = (event) => {
                     // Don't fail - database might not exist
-                    log.warn('IndexedDB delete request failed (may not exist)', event, { name });
+                    log.warn(
+                      "IndexedDB delete request failed (may not exist)",
+                      event,
+                      { name }
+                    );
                     resolve();
                   };
                   deleteReq.onblocked = () => {
                     // If blocked, wait longer and resolve anyway
-                    log.warn('IndexedDB delete blocked, waiting', { name });
+                    log.warn("IndexedDB delete blocked, waiting", { name });
                     setTimeout(() => resolve(), 1000);
                   };
                 });
               } catch (nameErr) {
                 // Ignore errors for individual names - database might not exist
-                log.warn('Failed to delete database (ignored)', nameErr, { name });
+                log.warn("Failed to delete database (ignored)", nameErr, {
+                  name,
+                });
               }
             })
           );
-          
+
           // Wait additional time to ensure IndexedDB deletion is fully processed
           // IndexedDB deletion is async and browser needs time to process
-          await new Promise(resolve => setTimeout(resolve, 1500));
+          await new Promise((resolve) => setTimeout(resolve, 1500));
         }
         // Remove version key
         localStorage.removeItem(DB_VERSION_KEY);
-        log.info('Old database deletion completed, ready to create new database');
+        log.info(
+          "Old database deletion completed, ready to create new database"
+        );
       } catch (deleteErr) {
-        log.warn('Failed to delete old database during version migration', deleteErr);
+        log.warn(
+          "Failed to delete old database during version migration",
+          deleteErr
+        );
         // Continue anyway - might still work, or will be handled by DB6 retry logic
       }
     }
@@ -294,7 +336,7 @@ export async function initDatabase(): Promise<NearbyMsgDatabase> {
       let database: RxDatabase;
       try {
         database = await createRxDatabase({
-          name: 'nearby_msg',
+          name: "nearby_msg",
           storage: getStorage(),
           // Close any existing instances with the same name to prevent DB9 errors
           // This is better than ignoreDuplicate as it ensures only one instance exists
@@ -305,31 +347,43 @@ export async function initDatabase(): Promise<NearbyMsgDatabase> {
       } catch (createErr) {
         // If DB9 or DXE1 error persists, it might be a schema/index mismatch
         // Only delete and recreate if version changed (already checked above)
-        const errCode = createErr && typeof createErr === 'object' && 'code' in createErr
-          ? String(createErr.code)
-          : '';
-        const errMessage = createErr && typeof createErr === 'object' && 'message' in createErr
-          ? String(createErr.message)
-          : String(createErr);
-        
+        const errCode =
+          createErr && typeof createErr === "object" && "code" in createErr
+            ? String(createErr.code)
+            : "";
+        const errMessage =
+          createErr && typeof createErr === "object" && "message" in createErr
+            ? String(createErr.message)
+            : String(createErr);
+
         // DXE1 is Dexie index error - usually means schema mismatch
-        if (errCode === 'DB9' || errCode === 'DXE1' || errMessage.includes('DB9') || errMessage.includes('DXE1')) {
+        if (
+          errCode === "DB9" ||
+          errCode === "DXE1" ||
+          errMessage.includes("DB9") ||
+          errMessage.includes("DXE1")
+        ) {
           // Only delete if version changed (already handled above) or if it's a persistent error
           // For DXE1, we need to delete to fix index conflicts
-          if (errCode === 'DXE1' || errMessage.includes('DXE1')) {
-            log.warn('DXE1 index error detected, deleting database to fix index conflicts');
+          if (errCode === "DXE1" || errMessage.includes("DXE1")) {
+            log.warn(
+              "DXE1 index error detected, deleting database to fix index conflicts"
+            );
             try {
               await deleteDatabase();
-              await new Promise(resolve => setTimeout(resolve, 200));
+              await new Promise((resolve) => setTimeout(resolve, 200));
               // Try creating again
               database = await createRxDatabase({
-                name: 'nearby_msg',
+                name: "nearby_msg",
                 storage: getStorage(),
                 closeDuplicates: true,
                 multiInstance: false,
               });
             } catch (recreateErr) {
-              log.error('Failed to recreate database after DXE1 error', recreateErr);
+              log.error(
+                "Failed to recreate database after DXE1 error",
+                recreateErr
+              );
               throw createErr; // Throw original error
             }
           } else {
@@ -368,58 +422,76 @@ export async function initDatabase(): Promise<NearbyMsgDatabase> {
         });
       } catch (addCollectionsErr) {
         // DXE1 and DB6 can occur when adding collections if schema/index conflicts exist
-        const addErrCode = addCollectionsErr && typeof addCollectionsErr === 'object' && 'code' in addCollectionsErr
-          ? String(addCollectionsErr.code)
-          : '';
-        const addErrMessage = addCollectionsErr && typeof addCollectionsErr === 'object' && 'message' in addCollectionsErr
-          ? String(addCollectionsErr.message)
-          : String(addCollectionsErr);
-        
+        const addErrCode =
+          addCollectionsErr &&
+          typeof addCollectionsErr === "object" &&
+          "code" in addCollectionsErr
+            ? String(addCollectionsErr.code)
+            : "";
+        const addErrMessage =
+          addCollectionsErr &&
+          typeof addCollectionsErr === "object" &&
+          "message" in addCollectionsErr
+            ? String(addCollectionsErr.message)
+            : String(addCollectionsErr);
+
         // DB6 = schema mismatch (another instance created collection with different schema)
         // DXE1 = index conflict
-        if (addErrCode === 'DXE1' || addErrCode === 'DB6' || addErrMessage.includes('DXE1') || addErrMessage.includes('DB6')) {
+        if (
+          addErrCode === "DXE1" ||
+          addErrCode === "DB6" ||
+          addErrMessage.includes("DXE1") ||
+          addErrMessage.includes("DB6")
+        ) {
           retryCount++;
           if (retryCount > MAX_RETRIES) {
-            log.error(`${addErrCode} error persists after multiple retries. Giving up.`);
+            log.error(
+              `${addErrCode} error persists after multiple retries. Giving up.`
+            );
             retryCount = 0; // Reset for next attempt
-            throw new Error(`Failed to initialize database after multiple attempts due to schema conflicts (${addErrCode}). Please clear browser data manually.`);
+            throw new Error(
+              `Failed to initialize database after multiple attempts due to schema conflicts (${addErrCode}). Please clear browser data manually.`
+            );
           }
-          
-          log.warn(`${addErrCode} error when adding collections, deleting database to fix schema conflicts`, {
-            retryCount,
-            maxRetries: MAX_RETRIES,
-            errorCode: addErrCode,
-          });
+
+          log.warn(
+            `${addErrCode} error when adding collections, deleting database to fix schema conflicts`,
+            {
+              retryCount,
+              maxRetries: MAX_RETRIES,
+              errorCode: addErrCode,
+            }
+          );
           // Close current database instance (may fail with DXE1/DB6, handled in closeDatabase)
           try {
             dbInstance = database as unknown as NearbyMsgDatabase;
             await closeDatabase();
           } catch (removeErr) {
             // Ignore errors when removing - database may be corrupted
-            log.warn('Error closing database instance (ignored)', removeErr);
+            log.warn("Error closing database instance (ignored)", removeErr);
             dbInstance = null;
           }
           // Delete and recreate - this will handle schema conflicts gracefully
           await deleteDatabase();
-          await new Promise(resolve => setTimeout(resolve, 1000)); // Wait longer for IndexedDB cleanup
+          await new Promise((resolve) => setTimeout(resolve, 1000)); // Wait longer for IndexedDB cleanup
           // IMPORTANT: Don't reset initPromise here - keep it to prevent race conditions
           // Instead, retry within the same promise by restarting the initialization logic
           dbInstance = null;
-          
+
           // Retry by restarting the initialization process within the same promise
           // This avoids calling initDatabase() recursively which would return the same promise
           // Restart from the beginning of the async function
           const currentVersion = String(DATABASE_SCHEMA_VERSION);
-          
+
           // Skip version check on retry (already handled in first attempt)
           // Go directly to creating the database
           database = await createRxDatabase({
-            name: 'nearby_msg',
+            name: "nearby_msg",
             storage: getStorage(),
             closeDuplicates: true,
             multiInstance: false,
           });
-          
+
           // Try adding collections again
           await database.addCollections({
             devices: { schema: deviceSchema },
@@ -430,7 +502,7 @@ export async function initDatabase(): Promise<NearbyMsgDatabase> {
             user_status: { schema: userStatusSchema },
             mutations: { schema: mutationSchema },
           });
-          
+
           // Success - continue with normal flow
           dbInstance = database as unknown as NearbyMsgDatabase;
           localStorage.setItem(DB_VERSION_KEY, currentVersion);
@@ -445,10 +517,10 @@ export async function initDatabase(): Promise<NearbyMsgDatabase> {
       // Type assertion needed because TypeScript can't infer the exact collection types
       // The database has the correct collections, but TypeScript sees them as generic
       dbInstance = database as unknown as NearbyMsgDatabase;
-      
+
       // Save current database version to localStorage
       localStorage.setItem(DB_VERSION_KEY, currentVersion);
-      
+
       // Reset retry count on successful initialization
       retryCount = 0;
       // Clear initPromise only after successful initialization
@@ -459,18 +531,20 @@ export async function initDatabase(): Promise<NearbyMsgDatabase> {
       // If database already exists or other error, clear promise and rethrow
       // IMPORTANT: Only clear initPromise after we're done with this attempt
       // Don't clear it here - let the caller handle it
-      const errMessage = err && typeof err === 'object' && 'message' in err 
-        ? String(err.message) 
-        : String(err);
-      const errCode = err && typeof err === 'object' && 'code' in err
-        ? String(err.code)
-        : '';
-      
-      if (errMessage.includes('already exists') || 
-          errMessage.includes('DB8') ||
-          errMessage.includes('DB9') ||
-          errCode === 'DB8' ||
-          errCode === 'DB9') {
+      const errMessage =
+        err && typeof err === "object" && "message" in err
+          ? String(err.message)
+          : String(err);
+      const errCode =
+        err && typeof err === "object" && "code" in err ? String(err.code) : "";
+
+      if (
+        errMessage.includes("already exists") ||
+        errMessage.includes("DB8") ||
+        errMessage.includes("DB9") ||
+        errCode === "DB8" ||
+        errCode === "DB9"
+      ) {
         // Database might already exist from previous session
         // Try to get existing database instance
         // IMPORTANT: Check if another call already created the instance
@@ -482,12 +556,12 @@ export async function initDatabase(): Promise<NearbyMsgDatabase> {
           // This will work if database already exists
           // Use closeDuplicates to ensure we don't create multiple instances
           const existingDb = await createRxDatabase({
-            name: 'nearby_msg',
+            name: "nearby_msg",
             storage: getStorage(),
             closeDuplicates: true,
             multiInstance: false,
           });
-          
+
           // Add collections if they don't exist
           if (!existingDb.devices) {
             await existingDb.addCollections({
@@ -500,7 +574,7 @@ export async function initDatabase(): Promise<NearbyMsgDatabase> {
               mutations: { schema: mutationSchema },
             });
           }
-          
+
           // Store instance before returning
           dbInstance = existingDb as unknown as NearbyMsgDatabase;
           // Save version to prevent re-initialization
@@ -508,7 +582,10 @@ export async function initDatabase(): Promise<NearbyMsgDatabase> {
           return existingDb as unknown as NearbyMsgDatabase;
         } catch (retryErr) {
           // If retry also fails, throw original error
-          log.error('Failed to recover from duplicate database error', retryErr);
+          log.error(
+            "Failed to recover from duplicate database error",
+            retryErr
+          );
           throw err;
         }
       }
@@ -541,20 +618,22 @@ export async function getDatabase(): Promise<NearbyMsgDatabase> {
     // Clear instance and promise to allow retry
     dbInstance = null;
     initPromise = null;
-    
+
     // Check if it's a duplicate database error
-    const errMessage = err && typeof err === 'object' && 'message' in err 
-      ? String(err.message) 
-      : String(err);
-    const errCode = err && typeof err === 'object' && 'code' in err
-      ? String(err.code)
-      : '';
-    
-    if (errMessage.includes('already exists') || 
-        errMessage.includes('DB8') ||
-        errMessage.includes('DB9') ||
-        errCode === 'DB8' ||
-        errCode === 'DB9') {
+    const errMessage =
+      err && typeof err === "object" && "message" in err
+        ? String(err.message)
+        : String(err);
+    const errCode =
+      err && typeof err === "object" && "code" in err ? String(err.code) : "";
+
+    if (
+      errMessage.includes("already exists") ||
+      errMessage.includes("DB8") ||
+      errMessage.includes("DB9") ||
+      errCode === "DB8" ||
+      errCode === "DB9"
+    ) {
       // Check if another call already created the instance
       if (dbInstance) {
         return dbInstance;
@@ -562,12 +641,12 @@ export async function getDatabase(): Promise<NearbyMsgDatabase> {
       // Try one more time with closeDuplicates
       try {
         const recoveredDb = await createRxDatabase({
-          name: 'nearby_msg',
+          name: "nearby_msg",
           storage: getStorage(),
           closeDuplicates: true,
           multiInstance: false,
         });
-        
+
         // Add collections if needed
         if (!recoveredDb.devices) {
           await recoveredDb.addCollections({
@@ -580,13 +659,13 @@ export async function getDatabase(): Promise<NearbyMsgDatabase> {
             mutations: { schema: mutationSchema },
           });
         }
-        
-          // Store instance and save version
-          dbInstance = recoveredDb as unknown as NearbyMsgDatabase;
-          localStorage.setItem(DB_VERSION_KEY, String(DATABASE_SCHEMA_VERSION));
-          return recoveredDb as unknown as NearbyMsgDatabase;
+
+        // Store instance and save version
+        dbInstance = recoveredDb as unknown as NearbyMsgDatabase;
+        localStorage.setItem(DB_VERSION_KEY, String(DATABASE_SCHEMA_VERSION));
+        return recoveredDb as unknown as NearbyMsgDatabase;
       } catch (recoveryErr) {
-        log.error('Failed to recover database', recoveryErr);
+        log.error("Failed to recover database", recoveryErr);
         throw err; // Throw original error
       }
     }
@@ -599,36 +678,49 @@ export async function getDatabase(): Promise<NearbyMsgDatabase> {
  * Handles DXE1 errors gracefully when database schema is corrupted
  */
 export async function closeDatabase(): Promise<void> {
-  log.info('[CLOSE_DATABASE] Starting database close');
+  log.info("[CLOSE_DATABASE] Starting database close");
   if (dbInstance) {
-    log.info('[CLOSE_DATABASE] Database instance exists, removing...');
+    log.info("[CLOSE_DATABASE] Database instance exists, removing...");
     try {
       await dbInstance.remove();
-      log.info('[CLOSE_DATABASE] Database instance removed successfully');
+      log.info("[CLOSE_DATABASE] Database instance removed successfully");
     } catch (removeErr) {
       // DXE1 can occur when removing corrupted databases - ignore and continue
-      const errCode = removeErr && typeof removeErr === 'object' && 'code' in removeErr
-        ? String(removeErr.code)
-        : '';
-      const errMessage = removeErr && typeof removeErr === 'object' && 'message' in removeErr
-        ? String(removeErr.message)
-        : String(removeErr);
-      
-      if (errCode === 'DXE1' || errCode === 'DB6' || errMessage.includes('DXE1') || errMessage.includes('DB6')) {
-        log.warn('[CLOSE_DATABASE] Error removing database instance (schema mismatch, will use direct IndexedDB deletion)', removeErr);
+      const errCode =
+        removeErr && typeof removeErr === "object" && "code" in removeErr
+          ? String(removeErr.code)
+          : "";
+      const errMessage =
+        removeErr && typeof removeErr === "object" && "message" in removeErr
+          ? String(removeErr.message)
+          : String(removeErr);
+
+      if (
+        errCode === "DXE1" ||
+        errCode === "DB6" ||
+        errMessage.includes("DXE1") ||
+        errMessage.includes("DB6")
+      ) {
+        log.warn(
+          "[CLOSE_DATABASE] Error removing database instance (schema mismatch, will use direct IndexedDB deletion)",
+          removeErr
+        );
       } else {
         // Re-throw non-schema errors
-        log.error('[CLOSE_DATABASE] Error removing database instance (non-schema error)', removeErr);
+        log.error(
+          "[CLOSE_DATABASE] Error removing database instance (non-schema error)",
+          removeErr
+        );
         throw removeErr;
       }
     }
     dbInstance = null;
-    log.info('[CLOSE_DATABASE] Database instance reference cleared');
+    log.info("[CLOSE_DATABASE] Database instance reference cleared");
   } else {
-    log.info('[CLOSE_DATABASE] No database instance to close');
+    log.info("[CLOSE_DATABASE] No database instance to close");
   }
   initPromise = null;
-  log.info('[CLOSE_DATABASE] Database close completed');
+  log.info("[CLOSE_DATABASE] Database close completed");
 }
 
 /**
@@ -640,12 +732,12 @@ export async function deleteDatabase(): Promise<void> {
   // Clear instance references first (don't try to close - may fail with DXE1)
   dbInstance = null;
   initPromise = null;
-  
+
   // Delete the database from IndexedDB directly (bypass RxDB completely to avoid DXE1)
   // This is more reliable when database is corrupted
   try {
-    const dbName = 'nearby_msg';
-    if (typeof indexedDB !== 'undefined') {
+    const dbName = "nearby_msg";
+    if (typeof indexedDB !== "undefined") {
       // Try to delete all possible database names that RxDB/Dexie might use
       const possibleNames = [
         `rxdb-${dbName}`,
@@ -654,7 +746,7 @@ export async function deleteDatabase(): Promise<void> {
         `rxdb-${dbName}-2`,
         dbName,
       ];
-      
+
       // Delete all databases in parallel for faster cleanup
       await Promise.all(
         possibleNames.map(async (name) => {
@@ -670,17 +762,17 @@ export async function deleteDatabase(): Promise<void> {
             });
           } catch (nameErr) {
             // Ignore errors for individual names
-            log.warn('Failed to delete database (ignored)', nameErr, { name });
+            log.warn("Failed to delete database (ignored)", nameErr, { name });
           }
         })
       );
     }
-    
+
     // Also remove version key from localStorage
     localStorage.removeItem(DB_VERSION_KEY);
   } catch (err) {
     // Don't throw - just log. Direct IndexedDB deletion should work even if RxDB fails
-    log.warn('Error during database deletion (non-critical)', err);
+    log.warn("Error during database deletion (non-critical)", err);
   }
 }
 
@@ -694,10 +786,10 @@ export async function getPendingMessageDocs() {
     .find({
       selector: {
         sync_status: {
-          $ne: 'synced',
+          $ne: "synced",
         },
       },
-      sort: [{ created_at: 'asc' }],
+      sort: [{ created_at: "asc" }],
     })
     .exec();
 }
@@ -713,20 +805,67 @@ export async function watchGroupMessages(
   callback: (messages: Message[]) => void
 ): Promise<() => void> {
   const db = await getDatabase();
+
+  // Use collection.$ observable to detect ALL changes (insert, update, delete)
+  // This ensures we catch messages from WebSocket even if query.$ doesn't emit
+  const collectionSubscription: Subscription = db.messages.$.subscribe(
+    async () => {
+      // After any change, re-query messages for this group
+      const query = db.messages.find({
+        selector: {
+          group_id: groupId,
+        },
+        sort: [{ created_at: "asc" }],
+      });
+      const docs = await query.exec();
+      const payload = docs.map((doc) => doc.toJSON() as Message);
+
+      // Ensure messages are sorted correctly (RxDB string sort might have issues)
+      // Sort by created_at timestamp to ensure correct order
+      payload.sort((a, b) => {
+        const timeA = new Date(a.created_at).getTime();
+        const timeB = new Date(b.created_at).getTime();
+        if (timeA !== timeB) {
+          return timeA - timeB; // Ascending order (oldest first)
+        }
+        // If timestamps are equal, sort by device_sequence
+        const seqA = a.device_sequence ?? 0;
+        const seqB = b.device_sequence ?? 0;
+        return seqA - seqB;
+      });
+
+      callback(payload);
+    }
+  );
+
+  // Also emit initial state
   const query = db.messages.find({
     selector: {
       group_id: groupId,
     },
-    sort: [{ created_at: 'asc' }],
+    sort: [{ created_at: "asc" }],
+  });
+  const initialDocs = await query.exec();
+  const initialPayload = initialDocs.map((doc) => doc.toJSON() as Message);
+
+  // Ensure messages are sorted correctly (RxDB string sort might have issues)
+  // Sort by created_at timestamp to ensure correct order
+  initialPayload.sort((a, b) => {
+    const timeA = new Date(a.created_at).getTime();
+    const timeB = new Date(b.created_at).getTime();
+    if (timeA !== timeB) {
+      return timeA - timeB; // Ascending order (oldest first)
+    }
+    // If timestamps are equal, sort by device_sequence
+    const seqA = a.device_sequence ?? 0;
+    const seqB = b.device_sequence ?? 0;
+    return seqA - seqB;
   });
 
-  const subscription: Subscription = query.$?.subscribe((docs) => {
-    const payload = docs.map((doc) => doc.toJSON() as Message);
-    callback(payload);
-  });
+  callback(initialPayload);
 
   return () => {
-    subscription?.unsubscribe();
+    collectionSubscription?.unsubscribe();
   };
 }
 
@@ -737,7 +876,7 @@ export async function watchGroupMessages(
  */
 export async function updateMessageSyncStatus(
   messageId: string,
-  status: Message['sync_status'],
+  status: Message["sync_status"],
   syncedAt?: string
 ): Promise<void> {
   const db = await getDatabase();
@@ -754,3 +893,48 @@ export async function updateMessageSyncStatus(
   await doc.patch(patch);
 }
 
+/**
+ * Watches pinned messages for a specific group and streams updates via callback.
+ * @param groupId Group identifier
+ * @param callback Callback invoked with ordered pinned message list
+ * @returns Unsubscribe function
+ */
+export async function watchPinnedMessages(
+  groupId: string,
+  callback: (pinnedMessages: PinnedMessage[]) => void
+): Promise<() => void> {
+  const db = await getDatabase();
+
+  // Use collection.$ observable to detect ALL changes
+  const collectionSubscription: Subscription = db.pinned_messages.$.subscribe(
+    async () => {
+      // After any change, re-query pinned messages for this group
+      const query = db.pinned_messages.find({
+        selector: {
+          group_id: groupId,
+        },
+        sort: [{ pinned_at: "desc" }],
+      });
+      const docs = await query.exec();
+      const payload = docs.map((doc) => doc.toJSON() as PinnedMessage);
+      callback(payload);
+    }
+  );
+
+  // Also emit initial state
+  const query = db.pinned_messages.find({
+    selector: {
+      group_id: groupId,
+    },
+    sort: [{ pinned_at: "desc" }],
+  });
+  const initialDocs = await query.exec();
+  const initialPayload = initialDocs.map(
+    (doc) => doc.toJSON() as PinnedMessage
+  );
+  callback(initialPayload);
+
+  return () => {
+    collectionSubscription?.unsubscribe();
+  };
+}

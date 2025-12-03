@@ -16,6 +16,7 @@ import { getDatabase } from "@/shared/services/db";
 import { pullDocuments } from "@/features/replication/services/replication-sync";
 import { selectDevice } from '@/features/device/store/slice';
 import { selectDeviceLocation, selectSelectedRadius } from '@/features/navigation/store/appSlice';
+import { getToken } from '@/features/device/services/device-storage';
 import type { RootState } from '@/store';
 import {
   setNearbyGroups,
@@ -121,6 +122,13 @@ function* watchPullGroupsReplication() {
 }
 
 function* handlePullGroupsReplication(action: { type: string; payload?: { latitude: number; longitude: number; radius: number } }) {
+  // Check if device is registered (has token) before pulling replication
+  const token = getToken();
+  if (!token) {
+    log.debug('Skipping groups replication pull: Device not registered (no token)');
+    return;
+  }
+
   const now = Date.now();
   
   // Debounce: Skip if pull was called recently or is in progress
@@ -143,8 +151,12 @@ function* handlePullGroupsReplication(action: { type: string; payload?: { latitu
     yield call(pullDocuments, ['groups'], undefined, action.payload);
     log.debug('Groups replication pull completed');
     
+    // Small delay to ensure RxDB has been updated with pulled groups
+    yield delay(200);
+    
     // After pulling groups, filter and update nearbyGroups array
     // This ensures useNearbyGroups hook returns the filtered groups
+    // Note: RxDB listener will also trigger fetchNearbyGroupsAction, but this ensures it happens immediately
     if (action.payload) {
       yield put(fetchNearbyGroupsAction({
         latitude: action.payload.latitude,
@@ -161,17 +173,50 @@ function* handlePullGroupsReplication(action: { type: string; payload?: { latitu
 }
 
 function* handleFetchNearbyGroups(action: { type: string; payload: NearbyGroupsRequest }) {
+  // Check if device is registered (has token) before pulling replication
+  const token = getToken();
+  if (!token) {
+    log.debug('Skipping fetch nearby groups: Device not registered (no token)');
+    yield put(setNearbyGroupsLoading(false));
+    yield put(setNearbyGroups([]));
+    return;
+  }
+
   try {
     yield put(setNearbyGroupsLoading(true));
     yield put(setNearbyGroupsError(null));
     
-    // First, ensure groups are pulled via replication (if not already done)
-    // This ensures all data flows through RxDB, not direct API calls
-    yield call(pullDocuments, ['groups'], undefined, {
-      latitude: action.payload.latitude,
-      longitude: action.payload.longitude,
-      radius: action.payload.radius,
-    });
+    // Check if this is being called from RxDB listener (to avoid infinite loop)
+    // If lastFetchParams already matches current request, skip pull and just read from RxDB
+    const lastFetchParams = (yield select((state: RootState) => 
+      state.groups.lastFetchParams
+    )) as unknown as { latitude: number; longitude: number; radius: number } | null;
+    
+    const isSameRequest = lastFetchParams && 
+      lastFetchParams.latitude === action.payload.latitude &&
+      lastFetchParams.longitude === action.payload.longitude &&
+      lastFetchParams.radius === action.payload.radius;
+    
+    // Only pull if this is a new request (different params) or no previous params
+    // This prevents infinite loop: listener -> fetchNearbyGroupsAction -> pullDocuments -> listener -> ...
+    if (!isSameRequest) {
+      // Set flag to prevent listener from triggering fetchNearbyGroupsAction during pull
+      isPullingGroups = true;
+      try {
+        // First, ensure groups are pulled via replication (if not already done)
+        // This ensures all data flows through RxDB, not direct API calls
+        yield call(pullDocuments, ['groups'], undefined, {
+          latitude: action.payload.latitude,
+          longitude: action.payload.longitude,
+          radius: action.payload.radius,
+        });
+      } finally {
+        // Reset flag after pull completes (even if it fails)
+        isPullingGroups = false;
+      }
+    } else {
+      log.debug('Skipping pullDocuments - same request params, reading from RxDB only');
+    }
     
     // Then read from RxDB (synced via replication)
     const response: NearbyGroupsResponse = yield call(discoverNearbyGroups, action.payload);
@@ -217,13 +262,32 @@ function* handleCreateGroup(action: {
     const radius = (yield select((state: RootState) => selectSelectedRadius(state))) as unknown as ReturnType<typeof selectSelectedRadius>;
     
     if (deviceLocation) {
-      // Pull groups with location filter to include the newly created group
-      yield call(pullDocuments, ['groups'], undefined, {
+      // Check if device is registered (has token) before pulling replication
+      const token = getToken();
+      if (token) {
+        // Pull groups with location filter to include the newly created group
+        yield call(pullDocuments, ['groups'], undefined, {
+          latitude: deviceLocation.latitude,
+          longitude: deviceLocation.longitude,
+          radius,
+        });
+      } else {
+        log.debug('Skipping groups replication pull after create: Device not registered (no token)');
+      }
+      log.debug('Pulled groups replication after creating group');
+      
+      // Small delay to ensure RxDB has been updated with the new group
+      yield delay(100);
+      
+      // Trigger fetchNearbyGroupsAction to update nearbyGroups array in Redux
+      // This ensures the newly created group appears in the list immediately
+      // discoverNearbyGroups reads from RxDB, so the new group should be included
+      yield put(fetchNearbyGroupsAction({
         latitude: deviceLocation.latitude,
         longitude: deviceLocation.longitude,
         radius,
-      });
-      log.debug('Pulled groups replication after creating group');
+      }));
+      log.debug('Dispatched fetchNearbyGroupsAction after creating group', { groupId: group.id });
     }
   } catch (error) {
     log.error('Failed to create group', error);
@@ -259,12 +323,18 @@ function* handleFetchGroupDetails(action: { type: string; payload: string }) {
       const deviceLocation = (yield select((state: RootState) => selectDeviceLocation(state))) as unknown as ReturnType<typeof selectDeviceLocation>;
       const radius = (yield select((state: RootState) => selectSelectedRadius(state))) as unknown as ReturnType<typeof selectSelectedRadius>;
       
-      // Pull groups replication (will update RxDB, which triggers listener to update Redux)
-      yield call(pullDocuments, ['groups'], [groupId], deviceLocation ? {
-        latitude: deviceLocation.latitude,
-        longitude: deviceLocation.longitude,
-        radius: radius || 5000,
-      } : undefined);
+      // Check if device is registered (has token) before pulling replication
+      const token = getToken();
+      if (token) {
+        // Pull groups replication (will update RxDB, which triggers listener to update Redux)
+        yield call(pullDocuments, ['groups'], [groupId], deviceLocation ? {
+          latitude: deviceLocation.latitude,
+          longitude: deviceLocation.longitude,
+          radius: radius || 5000,
+        } : undefined);
+      } else {
+        log.debug('Skipping groups replication pull for group details: Device not registered (no token)');
+      }
       
       // Check again after pull
       const groupAfterPull: Group | null = yield call(getGroup, groupId);
@@ -610,6 +680,40 @@ function* watchGroupsRxDBChanges() {
           yield put(setGroup(group));
         }
         log.debug('Groups RxDB listener: Updated Redux store', { count: groups.length });
+        
+        // If we have last fetch params, automatically refresh nearbyGroups array
+        // This ensures groups appear in the list immediately after replication
+        // BUT: Only update nearbyGroups array directly (read from RxDB), do NOT trigger fetchNearbyGroupsAction
+        // to avoid infinite loop: pullDocuments -> RxDB change -> listener -> fetchNearbyGroupsAction -> pullDocuments -> ...
+        // Solution: Listener only updates nearbyGroups array by reading from RxDB (no pull)
+        const lastFetchParams = (yield select((state: RootState) => 
+          state.groups.lastFetchParams
+        )) as unknown as { latitude: number; longitude: number; radius: number } | null;
+        
+        if (lastFetchParams && !isPullingGroups) {
+          // Small delay to ensure RxDB query gets the latest data
+          yield delay(100);
+          
+          // Read from RxDB directly (no pull, no API call)
+          // This updates nearbyGroups array without triggering another pull
+          const response: NearbyGroupsResponse = yield call(discoverNearbyGroups, {
+            latitude: lastFetchParams.latitude,
+            longitude: lastFetchParams.longitude,
+            radius: lastFetchParams.radius,
+          });
+          
+          yield put(setNearbyGroups(response.groups));
+          yield put(setNearbyGroupsDistances(response.distances ?? []));
+          log.debug('Groups RxDB listener: Updated nearbyGroups array from RxDB', { 
+            groupsCount: groups.length,
+            nearbyGroupsCount: response.groups.length,
+            lastFetchParams 
+          });
+        } else if (isPullingGroups) {
+          log.debug('Groups RxDB listener: Skipping nearbyGroups update (pull in progress)', {
+            groupsCount: groups.length
+          });
+        }
       }
     } finally {
       const isCancelled: boolean = (yield cancelled()) as unknown as boolean;
@@ -635,12 +739,38 @@ function createGroupsEventChannel(): EventChannel<Group[]> {
     getDatabase().then((db) => {
       if (!isActive) return;
       
-      // Subscribe to all groups changes
-      const query = db.groups.find();
-      const subscription = query.$.subscribe((docs) => {
+      // Subscribe to collection changes using collection.$ observable
+      // This emits whenever ANY document in the collection changes (insert, update, delete)
+      // changeEvent contains: { operation: 'INSERT' | 'UPDATE' | 'DELETE', documentData: {...} }
+      const subscription = db.groups.$.subscribe(async (changeEvent) => {
+        if (!isActive) return;
+        
+        try {
+          // After any change, re-query all groups to get the latest state
+          const allGroups = await db.groups.find().exec();
+          const groups = allGroups.map((doc) => doc.toJSON() as Group);
+          emit(groups);
+          log.debug('Groups RxDB collection change detected', { 
+            changeType: changeEvent.operation,
+            documentId: changeEvent.documentData?.id,
+            groupsCount: groups.length 
+          });
+        } catch (err) {
+          log.error('Failed to query groups after collection change', err);
+        }
+      });
+      
+      // Also emit initial state immediately
+      db.groups.find().exec().then((docs) => {
         if (!isActive) return;
         const groups = docs.map((doc) => doc.toJSON() as Group);
         emit(groups);
+        log.debug('Groups RxDB initial state emitted', { count: groups.length });
+      }).catch((err) => {
+        log.error('Failed to get initial groups state', err);
+        if (isActive) {
+          emit([]); // Emit empty array on error
+        }
       });
       
       unsubscribe = () => subscription.unsubscribe();

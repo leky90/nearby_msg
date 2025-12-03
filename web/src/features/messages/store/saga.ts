@@ -1,25 +1,21 @@
-import { call, put, takeEvery, select, take, fork, cancel, cancelled } from 'redux-saga/effects';
+import { call, put, takeEvery, take, fork, cancel, cancelled, delay, select } from 'redux-saga/effects';
 import { eventChannel, type EventChannel, type Task } from 'redux-saga';
 import type { Message, MessageCreateRequest } from "@/shared/domain/message";
 import type { PinnedMessage } from "@/shared/domain/pinned_message";
 import { createMessage } from "@/features/messages/services/message-service";
 import { getPinnedMessages } from "@/features/messages/services/pin-service";
-import { getDatabase, watchGroupMessages } from "@/shared/services/db";
+import { getDatabase, watchGroupMessages, watchPinnedMessages } from "@/shared/services/db";
 import { pullDocuments } from "@/features/replication/services/replication-sync";
 import { getOrCreateDeviceId } from "@/features/device/services/device-storage";
 import {
-  addMessage,
-  setMessagesLoading,
-  setMessagesError,
-  markMessageReceived,
-  queuePendingMessage,
-  removePendingMessage,
   setMessages,
   setPinnedMessages,
   setPinnedMessagesLoading,
   setPinnedMessagesError,
+  setMessagesError,
+  markMessageReceived,
+  removePendingMessage
 } from './slice';
-import { selectIsWebSocketConnected } from '@/features/websocket/store/slice';
 import { sendWebSocketMessageAction } from '@/features/websocket/store/saga';
 import { log } from "@/shared/lib/logging/logger";
 
@@ -65,61 +61,22 @@ function* watchSendMessage() {
 function* handleSendMessage(action: { type: string; payload: MessageCreateRequest }) {
   try {
     const { group_id } = action.payload;
-    yield put(setMessagesLoading({ groupId: group_id, isLoading: true }));
     yield put(setMessagesError({ groupId: group_id, error: null }));
     
-    // Check if WebSocket is connected
-    const isWebSocketConnected: boolean = yield select(selectIsWebSocketConnected);
-    
-    // Create message (will be sent via WebSocket if connected, otherwise queued)
+    // Create message and insert into RxDB
+    // Flow: insert RxDB → watchPendingMessagesForGroup detects → automatically sends via WebSocket
     const message: Message = yield call(createMessage, action.payload);
     
-    // Add to Redux state immediately (optimistic update)
-    yield put(addMessage({ groupId: group_id, message }));
+    log.info('Message inserted into RxDB', {
+      messageId: message.id,
+      groupId: group_id,
+      syncStatus: message.sync_status,
+    });
     
-    // Send via WebSocket if connected, otherwise fall back to REST API via replication
-    if (isWebSocketConnected) {
-      try {
-        log.debug('Sending message via WebSocket', {
-          messageId: message.id,
-          groupId: group_id,
-          content: message.content.substring(0, 50),
-        });
-        
-        // Send message via WebSocket
-        yield put(
-          sendWebSocketMessageAction({
-            type: 'send_message',
-            payload: {
-              groupId: group_id,
-              content: action.payload.content,
-              messageType: action.payload.message_type,
-              sosType: action.payload.sos_type,
-              tags: action.payload.tags,
-              deviceSequence: action.payload.device_sequence,
-            },
-          })
-        );
-        
-        log.debug('WebSocket message action dispatched', { messageId: message.id });
-        // Message will be marked as synced when WebSocket confirms (message_sent event)
-        // If WebSocket fails, message remains with sync_status='pending' and will be synced via REST
-      } catch (wsError) {
-        log.error('Failed to send message via WebSocket, will fall back to REST API', wsError, {
-          messageId: message.id,
-        });
-        // Message already has sync_status='pending', replication sync will handle it
-        yield put(queuePendingMessage(message));
-      }
-    } else {
-      // WebSocket not connected - message will be synced via REST API replication
-      // Message already has sync_status='pending', replication sync will push it
-      yield put(queuePendingMessage(message));
-      log.debug('WebSocket not connected, message will sync via REST API', {
-        messageId: message.id,
-        isWebSocketConnected,
-      });
-    }
+    // Message is now in RxDB with sync_status='pending'
+    // watchPendingMessagesForGroup (started when WebSocket subscribes to group) will detect it
+    // and automatically send via WebSocket when WebSocket is connected and subscribed
+    // If WebSocket is not connected/subscribed, message will be synced via REST API replication
     
     // Message is stored in RxDB with sync_status='pending'
     // - If WebSocket succeeds: message_sent event will mark it as synced
@@ -132,8 +89,6 @@ function* handleSendMessage(action: { type: string; payload: MessageCreateReques
         error: error instanceof Error ? error.message : 'Failed to send message',
       })
     );
-  } finally {
-    yield put(setMessagesLoading({ groupId: action.payload.group_id, isLoading: false }));
   }
 }
 
@@ -154,11 +109,19 @@ function* handleReceiveMessage(action: { type: string; payload: Message }): Gene
     }
     
     // Mark as received
-    yield put(markMessageReceived(message.id));
+    yield put(markMessageReceived({ messageId: message.id }));
     
     const db = (yield call(getDatabase) as unknown) as Awaited<ReturnType<typeof getDatabase>>;
     const deviceId = (yield call(getOrCreateDeviceId) as unknown) as string;
     
+    log.debug('Processing received message', {
+      messageId: message.id,
+      messageDeviceId: message.device_id,
+      localDeviceId: deviceId,
+      isMatch: message.device_id === deviceId,
+      content: message.content
+    });
+
     // Check if this is our own message (optimistic update scenario)
     // If we sent a message with client ID, server creates new message with server ID
     // We need to match and update the optimistic message
@@ -166,27 +129,42 @@ function* handleReceiveMessage(action: { type: string; payload: Message }): Gene
       // This might be our own message from server
       // Try to find optimistic message with same content, group, and similar timestamp
       const optimisticMessage = (yield call(async () => {
+        // Fetch all pending messages for this group/device in the time window
+        // We don't filter by content in the query to handle potential server-side trimming/modification
         const messages = await db.messages
           .find({
             selector: {
               group_id: message.group_id,
               device_id: deviceId,
-              content: message.content,
               sync_status: 'pending',
-              // Created within last 5 seconds (to match optimistic message)
+              // Created within last 60 seconds (to match optimistic message)
               created_at: {
-                $gte: new Date(Date.now() - 5000).toISOString(),
+                $gte: new Date(Date.now() - 60000).toISOString(),
               },
             },
           })
           .exec();
         
-        // Find the closest match by timestamp
+        log.debug('Looking for optimistic message candidates', {
+          serverMessageId: message.id,
+          serverContent: message.content,
+          foundCount: messages.length,
+          searchWindow: '60s'
+        });
+
+        // Find the closest match by content and timestamp
         const docs = (messages as unknown[]) as Array<{ toJSON: () => Message }>;
-        if (docs.length > 0) {
+        
+        // Filter by content (allow trimmed match)
+        const matchingContentDocs = docs.filter(d => {
+          const json = d.toJSON();
+          return json.content.trim() === message.content.trim();
+        });
+
+        if (matchingContentDocs.length > 0) {
           // Sort by created_at difference and return closest
           const messageTime = new Date(message.created_at).getTime();
-          const sorted = docs
+          const sorted = matchingContentDocs
             .map((m) => {
               const json = m.toJSON();
               return {
@@ -198,6 +176,15 @@ function* handleReceiveMessage(action: { type: string; payload: Message }): Gene
           
           return sorted[0]?.doc || null;
         }
+        
+        // If no content match, log warning
+        if (docs.length > 0) {
+          log.warn('Found pending messages but content did not match', {
+            serverContent: message.content,
+            pendingContents: docs.map(d => d.toJSON().content)
+          });
+        }
+        
         return null;
       }) as unknown) as { toJSON: () => Message } | null;
       
@@ -205,7 +192,7 @@ function* handleReceiveMessage(action: { type: string; payload: Message }): Gene
         // Found optimistic message - update it with server ID and sync status
         const optimisticData = (optimisticMessage as unknown as { toJSON: () => Message }).toJSON() as Message;
         const optimisticId = optimisticData.id;
-        log.debug('Updating optimistic message with server ID', {
+        log.info('Updating optimistic message with server ID', {
           optimisticId,
           serverId: message.id,
         });
@@ -217,32 +204,28 @@ function* handleReceiveMessage(action: { type: string; payload: Message }): Gene
           await db.messages.upsert(message);
         });
         
-        // Update Redux state - remove old message, add new one
-        // First, remove old message from Redux
-        const currentMessages = (yield select((state: { messages: { byGroupId: Record<string, { messages: Message[] }> } }) => 
-          state.messages.byGroupId[message.group_id]?.messages || []
-        )) as unknown as Message[];
-        
-        const filteredMessages = currentMessages.filter((m) => m.id !== optimisticId);
-        
-        // Set messages without the old optimistic one
-        yield put(setMessages({ groupId: message.group_id, messages: filteredMessages }));
-        
-        // Add the new server message
-        yield put(addMessage({ groupId: message.group_id, message }));
+        // Don't manually update Redux state here - watchGroupMessages subscription will detect
+        // the change (remove + upsert) and emit the updated messages array via setMessages
+        // This ensures messages are always correctly sorted by RxDB query
         return;
+      } else {
+        log.warn('Optimistic message not found for own message', {
+          messageId: message.id,
+          content: message.content
+        });
       }
     }
     
     // Not our own message or no optimistic message found - store normally
     // WebSocket messages are already synced (sync_status='synced')
     // REST API messages will have sync_status='pending' and be synced via replication
+    // Just upsert to RxDB - watchGroupMessages will detect the change and update Redux via setMessages
     yield call(async () => {
       await db.messages.upsert(message);
     });
     
-    // Add to Redux state (will be sorted by created_at + device_sequence)
-    yield put(addMessage({ groupId: message.group_id, message }));
+    // Don't call addMessage here - watchGroupMessages subscription will emit the updated messages array
+    // and setMessages will update Redux state with the correctly sorted messages
   } catch (error) {
     log.error('Failed to receive message', error);
   }
@@ -251,10 +234,6 @@ function* handleReceiveMessage(action: { type: string; payload: Message }): Gene
 // Track syncing messages state to prevent duplicate calls
 const syncingMessages = new Set<string>();
 
-/**
- * Watch for sync messages actions
- * Uses takeEvery with duplicate prevention to handle rapid calls
- */
 function* watchSyncMessages() {
   yield takeEvery(SYNC_MESSAGES, handleSyncMessages);
 }
@@ -271,8 +250,7 @@ function* handleSyncMessages(action: { type: string; payload: string }): Generat
   syncingMessages.add(groupId);
   
   try {
-    yield put(setMessagesLoading({ groupId, isLoading: true }));
-    
+    // Don't set loading state - messages will appear naturally from RxDB subscription
     // Load messages from RxDB
     const db = (yield call(getDatabase) as unknown) as Awaited<ReturnType<typeof getDatabase>>;
     const messagesQuery = db.messages.find({
@@ -300,7 +278,6 @@ function* handleSyncMessages(action: { type: string; payload: string }): Generat
       })
     );
   } finally {
-    yield put(setMessagesLoading({ groupId, isLoading: false }));
     syncingMessages.delete(groupId);
   }
 }
@@ -380,6 +357,7 @@ function* watchWebSocketReconnectionForQueuedMessages(): Generator<unknown, void
 
 // Track active subscriptions (task references)
 const activeSubscriptions = new Map<string, Task>();
+const activePinnedSubscriptions = new Map<string, Task>();
 
 /**
  * Watch for message subscription requests
@@ -397,9 +375,17 @@ function* handleStartMessageSubscription(action: { type: string; payload: { grou
     yield cancel(existingTask);
   }
   
-  // Start new subscription
+  const existingPinnedTask = activePinnedSubscriptions.get(groupId);
+  if (existingPinnedTask) {
+    yield cancel(existingPinnedTask);
+  }
+  
+  // Start new subscriptions
   const task: Task = yield fork(watchGroupMessagesSubscription, groupId, limit);
   activeSubscriptions.set(groupId, task);
+
+  const pinnedTask: Task = yield fork(watchGroupPinnedMessagesSubscription, groupId);
+  activePinnedSubscriptions.set(groupId, pinnedTask);
 }
 
 /**
@@ -411,29 +397,164 @@ function* watchStopMessageSubscription() {
 
 function* handleStopMessageSubscription(action: { type: string; payload: { groupId: string } }) {
   const { groupId } = action.payload;
+  
   const task = activeSubscriptions.get(groupId);
   if (task) {
     yield cancel(task);
     activeSubscriptions.delete(groupId);
   }
+
+  const pinnedTask = activePinnedSubscriptions.get(groupId);
+  if (pinnedTask) {
+    yield cancel(pinnedTask);
+    activePinnedSubscriptions.delete(groupId);
+  }
+}
+
+// ... existing watchGroupMessagesSubscription ...
+
+/**
+ * Watch RxDB pinned messages for a group and update Redux state
+ */
+function* watchGroupPinnedMessagesSubscription(groupId: string) {
+  try {
+    const channel: EventChannel<PinnedMessage[]> = yield call(createPinnedMessageEventChannel, groupId);
+    
+    while (true) {
+      const pinnedMessages: PinnedMessage[] = yield take(channel);
+      
+      // Transform to Redux format
+      const db = (yield call(getDatabase) as unknown) as Awaited<ReturnType<typeof getDatabase>>;
+      const messageIds = pinnedMessages.map((pin) => pin.message_id);
+      
+      const messageDocs = messageIds.length > 0
+        ? (yield call(async () => {
+            const results = await Promise.all(
+              messageIds.map((id) => db.messages.findOne(id).exec())
+            );
+            return results.filter((doc) => doc !== null);
+          }) as unknown) as Array<{ toJSON: () => Message }>
+        : [];
+      
+      // Create a map for faster lookup
+      const messageMap = new Map<string, Message>();
+      messageDocs.forEach(doc => {
+        const msg = doc.toJSON() as Message;
+        messageMap.set(msg.id, msg);
+      });
+
+      const transformedPinned = pinnedMessages
+        .map(pin => {
+          const message = messageMap.get(pin.message_id);
+          if (!message) return null;
+          return {
+            message,
+            pinned_at: pin.pinned_at,
+            pinned_by_device_id: pin.device_id,
+          };
+        })
+        .filter((item): item is { message: Message; pinned_at: string; pinned_by_device_id: string } => item !== null);
+      
+      yield put(setPinnedMessages({ groupId, pinnedMessages: transformedPinned }));
+    }
+  } catch (error) {
+    log.error('Failed to setup pinned message subscription', error, { groupId });
+  } finally {
+    const isCancelled: boolean = (yield cancelled()) as unknown as boolean;
+    if (isCancelled) {
+      // Cleanup if needed
+    }
+  }
 }
 
 /**
+ * Create an event channel for RxDB pinned message subscription
+ */
+function createPinnedMessageEventChannel(groupId: string): EventChannel<PinnedMessage[]> {
+  return eventChannel<PinnedMessage[]>((emit) => {
+    let unsubscribe: (() => void) | null = null;
+    let isActive = true;
+    
+    watchPinnedMessages(groupId, (pinnedMessages: PinnedMessage[]) => {
+      if (!isActive) return;
+      emit(pinnedMessages);
+    }).then((unsub) => {
+      if (isActive) {
+        unsubscribe = unsub;
+      } else if (unsub) {
+        unsub();
+      }
+    }).catch((err) => {
+      log.error('Failed to create pinned message subscription', err, { groupId });
+      if (isActive) {
+        emit([]);
+      }
+    });
+    
+    return () => {
+      isActive = false;
+      if (unsubscribe) {
+        unsubscribe();
+      }
+    };
+  });
+}
+
+// ... rest of the file ...
+
+/**
  * Watch RxDB messages for a group and update Redux state
+ * Uses debouncing to batch multiple rapid updates for better performance
  */
 function* watchGroupMessagesSubscription(groupId: string, limit?: number) {
   try {
     // Create event channel for RxDB subscription
     const channel: EventChannel<Message[]> = yield call(createMessageEventChannel, groupId, limit);
     
+    // Debounce buffer: accumulate messages updates and batch them
+    let pendingMessages: Message[] | null = null;
+    let debounceTask: Task | null = null;
+    
+    const flushPending = function* () {
+      if (pendingMessages !== null) {
+        const messagesToUpdate = pendingMessages;
+        pendingMessages = null;
+        debounceTask = null;
+        yield put(setMessages({ groupId, messages: messagesToUpdate }));
+      }
+    };
+    
     try {
       while (true) {
         const messages: Message[] = yield take(channel);
-        // Update Redux state with messages (no debouncing - saga handles efficiently)
-        yield put(setMessages({ groupId, messages }));
+        
+        // Store pending messages
+        pendingMessages = messages;
+        
+        // Cancel previous debounce task if exists
+        if (debounceTask) {
+          yield cancel(debounceTask);
+        }
+        
+        // Create new debounce task (50ms delay to batch rapid updates)
+        debounceTask = yield fork(function* () {
+          yield delay(50);
+          yield* flushPending();
+        });
       }
     } finally {
       const isCancelled: boolean = (yield cancelled()) as unknown as boolean;
+      
+      // Cancel debounce task if exists
+      if (debounceTask) {
+        yield cancel(debounceTask);
+      }
+      
+      // Flush any pending messages before closing
+      if (pendingMessages !== null) {
+        yield* flushPending();
+      }
+      
       if (isCancelled) {
         channel.close();
       }
@@ -505,9 +626,46 @@ function* handleFetchPinnedMessages(action: { type: string; payload: { groupId: 
       
       // Read again after pull
       const pinnedMessagesAfterPull = (yield call(getPinnedMessages, groupId)) as PinnedMessage[];
-      yield put(setPinnedMessages({ groupId, pinnedMessages: pinnedMessagesAfterPull }));
+      
+      // Transform PinnedMessage[] to { message: Message; pinned_at: string }[]
+      const db = (yield call(getDatabase) as unknown) as Awaited<ReturnType<typeof getDatabase>>;
+      const messageIds = pinnedMessagesAfterPull.map((pin) => pin.message_id);
+      const messageDocs = messageIds.length > 0
+        ? (yield call(async () => {
+            const results = await Promise.all(
+              messageIds.map((id) => db.messages.findOne(id).exec())
+            );
+            return results.filter((doc) => doc !== null);
+          }) as unknown) as Array<{ toJSON: () => Message }>
+        : [];
+      
+      const transformedPinned = messageDocs.map((doc, index) => ({
+        message: doc.toJSON() as Message,
+        pinned_at: pinnedMessagesAfterPull[index]?.pinned_at || new Date().toISOString(),
+        pinned_by_device_id: pinnedMessagesAfterPull[index]?.device_id || "unknown",
+      }));
+      
+      yield put(setPinnedMessages({ groupId, pinnedMessages: transformedPinned }));
     } else {
-      yield put(setPinnedMessages({ groupId, pinnedMessages }));
+      // Transform PinnedMessage[] to { message: Message; pinned_at: string }[]
+      const db = (yield call(getDatabase) as unknown) as Awaited<ReturnType<typeof getDatabase>>;
+      const messageIds = pinnedMessages.map((pin) => pin.message_id);
+      const messageDocs = messageIds.length > 0
+        ? (yield call(async () => {
+            const results = await Promise.all(
+              messageIds.map((id) => db.messages.findOne(id).exec())
+            );
+            return results.filter((doc) => doc !== null);
+          }) as unknown) as Array<{ toJSON: () => Message }>
+        : [];
+      
+      const transformedPinned = messageDocs.map((doc, index) => ({
+        message: doc.toJSON() as Message,
+        pinned_at: pinnedMessages[index]?.pinned_at || new Date().toISOString(),
+        pinned_by_device_id: pinnedMessages[index]?.device_id || "unknown",
+      }));
+      
+      yield put(setPinnedMessages({ groupId, pinnedMessages: transformedPinned }));
     }
   } catch (error) {
     log.error('Failed to fetch pinned messages', error, { groupId });

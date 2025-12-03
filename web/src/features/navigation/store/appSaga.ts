@@ -6,14 +6,11 @@ import { connectWebSocketAction } from '@/features/websocket/store/saga';
 import { fetchDeviceAction } from '@/features/device/store/saga';
 import { getGPSStatus } from '@/features/device/services/device-status';
 import {
-  setInitializationStatus,
-  setOnboardingRequired,
-  setServicesStarted,
-  setGPSStatus,
-  setNetworkStatus,
-  selectInitializationStatus,
-  selectServicesStarted,
-  selectUserStatus,
+    setServicesStarted,
+    setGPSStatus,
+    setNetworkStatus,
+    selectServicesStarted,
+    selectUserStatus,
 } from './appSlice';
 import { selectDevice } from '@/features/device/store/slice';
 import { fetchUserStatusAction } from '@/features/status/store/statusSaga';
@@ -32,18 +29,17 @@ const CHECK_GPS_STATUS = 'app/checkGPSStatus';
  */
 function* initApp(): Generator<unknown, void, unknown> {
   try {
-    // Guard: Skip if already initialized (prevents duplicate calls from StrictMode)
-    const currentStatus = (yield select((state: RootState) => 
-      selectInitializationStatus(state)
-    )) as unknown as ReturnType<typeof selectInitializationStatus>;
+    // Guard: Skip if device is already registered (prevents duplicate calls from StrictMode)
+    const isRegistered = (yield select((state: RootState) => 
+      state.device.isRegistered
+    )) as unknown as boolean;
     
-    if (currentStatus !== 'idle' && currentStatus !== 'error') {
-      log.debug('App already initializing or initialized, skipping');
+    if (isRegistered) {
+      log.debug('Device already registered, skipping initialization');
       return;
     }
     
     log.info('App initialization started');
-    yield put(setInitializationStatus({ status: 'checking' }));
     
     // Check localStorage for device_id and token
     const deviceId = yield call(getDeviceId);
@@ -51,7 +47,6 @@ function* initApp(): Generator<unknown, void, unknown> {
     
     if (deviceId && token) {
       // Both exist, fetch device
-      yield put(setInitializationStatus({ status: 'loading' }));
       yield put(fetchDeviceAction());
       
       // Wait for device fetch to complete (wait for setDevice or setDeviceError action)
@@ -66,30 +61,17 @@ function* initApp(): Generator<unknown, void, unknown> {
         if (device?.nickname) {
           // Device has nickname, start services
           yield put({ type: START_SERVICES });
-          yield put(setInitializationStatus({ status: 'ready' }));
           // Set active tab to explore when user logs back in
           yield put({ type: 'navigation/setActiveTab', payload: 'explore' });
-        } else {
-          // Device exists but no nickname, needs onboarding
-          yield put(setOnboardingRequired(true));
-          yield put(setInitializationStatus({ status: 'ready' }));
         }
-      } else {
-        // Device fetch failed, needs onboarding
-        yield put(setOnboardingRequired(true));
-        yield put(setInitializationStatus({ status: 'ready' }));
+        // If device has no nickname, onboarding will be shown automatically (App.tsx checks device.nickname)
       }
-    } else {
-      // No device_id or token, needs onboarding
-      yield put(setOnboardingRequired(true));
-      yield put(setInitializationStatus({ status: 'ready' }));
+      // If device fetch failed, onboarding will be shown automatically (App.tsx checks device === null)
     }
+    // If no device_id or token, onboarding will be shown automatically (App.tsx checks device === null)
   } catch (error) {
     log.error('App initialization failed', error);
-    yield put(setInitializationStatus({ 
-      status: 'error', 
-      error: error instanceof Error ? error.message : 'App initialization failed' 
-    }));
+    // Error is handled by device state (device will be null, triggering onboarding)
   }
 }
 
@@ -103,12 +85,11 @@ function* checkDevice(): Generator<unknown, void, unknown> {
     
     if (deviceId && token) {
       yield put(fetchDeviceAction());
-    } else {
-      yield put(setOnboardingRequired(true));
     }
+    // If no deviceId or token, App.tsx will automatically show onboarding (device === null)
   } catch (error) {
     log.error('Device check failed', error);
-    yield put(setOnboardingRequired(true));
+    // Error handled - App.tsx will show onboarding if device is null
   }
 }
 

@@ -1,7 +1,13 @@
-import { createSlice, type PayloadAction, createSelector } from '@reduxjs/toolkit';
-import type { Message } from "@/shared/domain/message";
-import type { PinnedMessage } from "@/shared/domain/pinned_message";
-import type { RootState } from "@/store";
+/**
+ * Messages Redux Slice
+ * Manages message state for all groups
+ * Optimized for performance with incremental updates
+ */
+
+import { createSlice, createSelector } from '@reduxjs/toolkit';
+import type { PayloadAction } from '@reduxjs/toolkit';
+import type { Message } from '@/shared/domain/message';
+import type { RootState } from '@/store';
 
 interface GroupMessagesState {
   messages: Message[];
@@ -11,33 +17,135 @@ interface GroupMessagesState {
 }
 
 interface MessagesState {
-  // Messages organized by group ID
   byGroupId: Record<string, GroupMessagesState>;
-  
-  // Message IDs received via WebSocket (for deduplication)
-  receivedMessageIds: string[]; // Array instead of Set for Redux serialization
-  
-  // Pending messages (queued during WebSocket disconnection)
-  pendingMessages: Array<{
-    message: Message;
-    timestamp: string;
-    retryCount: number;
-  }>;
-  
-  // Pinned messages organized by group ID
-  pinnedMessagesByGroupId: Record<string, {
-    pinnedMessages: PinnedMessage[];
-    isLoading: boolean;
-    error: string | null;
-  }>;
+  pendingMessages: Message[];
+  receivedMessageIds: string[];
+  // ... existing pinned messages state
+  pinnedMessagesByGroupId: Record<
+    string,
+    {
+      pinnedMessages: Array<{ message: Message; pinned_at: string; pinned_by_device_id: string }>;
+      isLoading: boolean;
+      error: string | null;
+    }
+  >;
 }
 
 const initialState: MessagesState = {
   byGroupId: {},
-  receivedMessageIds: [],
   pendingMessages: [],
+  receivedMessageIds: [],
   pinnedMessagesByGroupId: {},
 };
+
+/**
+ * Binary search to find insertion index for sorted array
+ * Returns index where message should be inserted to maintain sort order
+ */
+function findInsertionIndex(
+  messages: Message[],
+  newMessage: Message
+): number {
+  const newTime = new Date(newMessage.created_at).getTime();
+  const newSeq = newMessage.device_sequence ?? 0;
+
+  let left = 0;
+  let right = messages.length;
+
+  while (left < right) {
+    const mid = Math.floor((left + right) / 2);
+    const midTime = new Date(messages[mid].created_at).getTime();
+    const midSeq = messages[mid].device_sequence ?? 0;
+
+    if (midTime < newTime) {
+      left = mid + 1;
+    } else if (midTime > newTime) {
+      right = mid;
+    } else {
+      // Same timestamp, compare device_sequence
+      if (midSeq < newSeq) {
+        left = mid + 1;
+      } else {
+        right = mid;
+      }
+    }
+  }
+
+  return left;
+}
+
+/**
+ * Merge messages array intelligently
+ * - Adds new messages at correct position (binary search)
+ * - Updates existing messages
+ * - Maintains sort order without full re-sort
+ */
+function mergeMessages(
+  existing: Message[],
+  incoming: Message[]
+): Message[] {
+  // If existing is empty, return incoming
+  if (existing.length === 0) {
+    return incoming;
+  }
+
+  // If incoming is empty, return existing
+  if (incoming.length === 0) {
+    return existing;
+  }
+
+  // Create a map of existing messages by ID for O(1) lookup
+  const existingMap = new Map<string, Message>();
+  existing.forEach((msg) => {
+    existingMap.set(msg.id, msg);
+  });
+
+  // Track which messages are new vs updated
+  const newMessages: Message[] = [];
+  const updatedMessages: Message[] = [];
+
+  incoming.forEach((msg) => {
+    const existingMsg = existingMap.get(msg.id);
+    if (existingMsg) {
+      // Message exists - check if it needs update
+      if (
+        existingMsg.sync_status !== msg.sync_status ||
+        existingMsg.pinned !== msg.pinned ||
+        existingMsg.content !== msg.content
+      ) {
+        updatedMessages.push(msg);
+      }
+      // Remove from map to track which existing messages are still present
+      existingMap.delete(msg.id);
+    } else {
+      // New message
+      newMessages.push(msg);
+    }
+  });
+
+  // If no changes, return existing array (reference equality for React)
+  if (newMessages.length === 0 && updatedMessages.length === 0) {
+    return existing;
+  }
+
+  // Start with existing messages
+  let result = [...existing];
+
+  // Update existing messages in place
+  if (updatedMessages.length > 0) {
+    const updateMap = new Map(updatedMessages.map((msg) => [msg.id, msg]));
+    result = result.map((msg) => updateMap.get(msg.id) || msg);
+  }
+
+  // Insert new messages at correct position using binary search
+  // This is O(n log n) for all new messages, but better than full sort
+  for (const newMsg of newMessages) {
+    const insertIndex = findInsertionIndex(result, newMsg);
+    result.splice(insertIndex, 0, newMsg);
+  }
+
+  return result;
+}
 
 const messagesSlice = createSlice({
   name: 'messages',
@@ -56,6 +164,9 @@ const messagesSlice = createSlice({
           lastFetchedAt: null,
         };
       }
+
+      // Replace messages directly to ensure deletions (like optimistic updates) are reflected
+      // The incoming messages from RxDB are already sorted by created_at
       state.byGroupId[groupId].messages = messages;
       state.byGroupId[groupId].lastFetchedAt = new Date().toISOString();
     },
@@ -74,20 +185,12 @@ const messagesSlice = createSlice({
       }
       // Avoid duplicates
       if (!state.byGroupId[groupId].messages.find((m) => m.id === message.id)) {
-        state.byGroupId[groupId].messages.push(message);
-        // Sort by created_at (message ordering)
-        // Also sort by device_sequence if available for same timestamp
-        state.byGroupId[groupId].messages.sort((a, b) => {
-          const timeA = new Date(a.created_at).getTime();
-          const timeB = new Date(b.created_at).getTime();
-          if (timeA !== timeB) {
-            return timeA - timeB;
-          }
-          // If timestamps are equal, use device_sequence if available
-          const seqA = a.device_sequence ?? 0;
-          const seqB = b.device_sequence ?? 0;
-          return seqA - seqB;
-        });
+        // Use binary search to insert at correct position (O(log n))
+        const insertIndex = findInsertionIndex(
+          state.byGroupId[groupId].messages,
+          message
+        );
+        state.byGroupId[groupId].messages.splice(insertIndex, 0, message);
       }
     },
     updateMessage: (
@@ -95,12 +198,14 @@ const messagesSlice = createSlice({
       action: PayloadAction<{ groupId: string; messageId: string; updates: Partial<Message> }>
     ) => {
       const { groupId, messageId, updates } = action.payload;
-      const groupMessages = state.byGroupId[groupId];
-      if (groupMessages) {
-        const messageIndex = groupMessages.messages.findIndex((m) => m.id === messageId);
-        if (messageIndex !== -1) {
-          groupMessages.messages[messageIndex] = {
-            ...groupMessages.messages[messageIndex],
+      const groupState = state.byGroupId[groupId];
+      if (groupState) {
+        const messageIndex = groupState.messages.findIndex(
+          (m) => m.id === messageId
+        );
+        if (messageIndex >= 0) {
+          groupState.messages[messageIndex] = {
+            ...groupState.messages[messageIndex],
             ...updates,
           };
         }
@@ -114,13 +219,12 @@ const messagesSlice = createSlice({
       if (!state.byGroupId[groupId]) {
         state.byGroupId[groupId] = {
           messages: [],
-          isLoading,
+          isLoading: false,
           error: null,
           lastFetchedAt: null,
         };
-      } else {
-        state.byGroupId[groupId].isLoading = isLoading;
       }
+      state.byGroupId[groupId].isLoading = isLoading;
     },
     setMessagesError: (
       state,
@@ -131,41 +235,54 @@ const messagesSlice = createSlice({
         state.byGroupId[groupId] = {
           messages: [],
           isLoading: false,
-          error,
+          error: null,
           lastFetchedAt: null,
         };
-      } else {
-        state.byGroupId[groupId].error = error;
       }
+      state.byGroupId[groupId].error = error;
     },
-    markMessageReceived: (state, action: PayloadAction<string>) => {
-      const messageId = action.payload;
+    markMessageReceived: (
+      state,
+      action: PayloadAction<{ messageId: string }>
+    ) => {
+      const { messageId } = action.payload;
       if (!state.receivedMessageIds.includes(messageId)) {
         state.receivedMessageIds.push(messageId);
-        // Keep only last 1000 message IDs to prevent memory issues
-        if (state.receivedMessageIds.length > 1000) {
-          state.receivedMessageIds = state.receivedMessageIds.slice(-1000);
-        }
       }
     },
-    queuePendingMessage: (state, action: PayloadAction<Message>) => {
-      state.pendingMessages.push({
-        message: action.payload,
-        timestamp: new Date().toISOString(),
-        retryCount: 0,
-      });
+    queuePendingMessage: (
+      state,
+      action: PayloadAction<Message>
+    ) => {
+      const message = action.payload;
+      // Avoid duplicates
+      if (!state.pendingMessages.find((m) => m.id === message.id)) {
+        state.pendingMessages.push(message);
+      }
     },
-    removePendingMessage: (state, action: PayloadAction<string>) => {
+    removePendingMessage: (
+      state,
+      action: PayloadAction<string>
+    ) => {
+      const messageId = action.payload;
       state.pendingMessages = state.pendingMessages.filter(
-        (pm) => pm.message.id !== action.payload
+        (m) => m.id !== messageId
       );
     },
-    clearMessages: (state, action: PayloadAction<string>) => {
-      delete state.byGroupId[action.payload];
+    clearMessages: (
+      state,
+      action: PayloadAction<{ groupId: string }>
+    ) => {
+      const { groupId } = action.payload;
+      delete state.byGroupId[groupId];
     },
+    // Pinned messages reducers
     setPinnedMessages: (
       state,
-      action: PayloadAction<{ groupId: string; pinnedMessages: PinnedMessage[] }>
+      action: PayloadAction<{
+        groupId: string;
+        pinnedMessages: Array<{ message: Message; pinned_at: string; pinned_by_device_id: string }>;
+      }>
     ) => {
       const { groupId, pinnedMessages } = action.payload;
       if (!state.pinnedMessagesByGroupId[groupId]) {
@@ -185,12 +302,11 @@ const messagesSlice = createSlice({
       if (!state.pinnedMessagesByGroupId[groupId]) {
         state.pinnedMessagesByGroupId[groupId] = {
           pinnedMessages: [],
-          isLoading,
+          isLoading: false,
           error: null,
         };
-      } else {
-        state.pinnedMessagesByGroupId[groupId].isLoading = isLoading;
       }
+      state.pinnedMessagesByGroupId[groupId].isLoading = isLoading;
     },
     setPinnedMessagesError: (
       state,
@@ -298,8 +414,7 @@ export const selectUnreadCountByGroupId = (
   const messages = selectMessagesByGroupId(state, groupId);
   const deviceId = state.device?.device?.id || null;
   if (!deviceId) return 0;
-  // Count messages not sent by current device
-  return messages.filter((msg) => msg.device_id !== deviceId).length;
+  return messages.filter((m) => m.device_id !== deviceId).length;
 };
 
 /**
@@ -311,7 +426,7 @@ export const selectPinnedMessagesByGroupId = createSelector(
 );
 
 /**
- * Selector for pinned messages loading state
+ * Selector for pinned messages loading state by group ID
  */
 export const selectPinnedMessagesLoading = createSelector(
   [selectMessagesState, (_state: { messages: MessagesState }, groupId: string) => groupId],
@@ -319,7 +434,7 @@ export const selectPinnedMessagesLoading = createSelector(
 );
 
 /**
- * Selector for pinned messages error state
+ * Selector for pinned messages error by group ID
  */
 export const selectPinnedMessagesError = createSelector(
   [selectMessagesState, (_state: { messages: MessagesState }, groupId: string) => groupId],
