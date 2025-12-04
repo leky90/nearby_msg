@@ -4,10 +4,10 @@
  * Optimized for performance with incremental updates
  */
 
-import { createSlice, createSelector } from '@reduxjs/toolkit';
-import type { PayloadAction } from '@reduxjs/toolkit';
-import type { Message } from '@/shared/domain/message';
-import type { RootState } from '@/store';
+import { createSlice, createSelector } from "@reduxjs/toolkit";
+import type { PayloadAction } from "@reduxjs/toolkit";
+import type { Message } from "@/shared/domain/message";
+import type { RootState } from "@/store";
 
 interface GroupMessagesState {
   messages: Message[];
@@ -24,7 +24,11 @@ interface MessagesState {
   pinnedMessagesByGroupId: Record<
     string,
     {
-      pinnedMessages: Array<{ message: Message; pinned_at: string; pinned_by_device_id: string }>;
+      pinnedMessages: Array<{
+        message: Message;
+        pinned_at: string;
+        pinned_by_device_id: string;
+      }>;
       isLoading: boolean;
       error: string | null;
     }
@@ -42,10 +46,7 @@ const initialState: MessagesState = {
  * Binary search to find insertion index for sorted array
  * Returns index where message should be inserted to maintain sort order
  */
-function findInsertionIndex(
-  messages: Message[],
-  newMessage: Message
-): number {
+function findInsertionIndex(messages: Message[], newMessage: Message): number {
   const newTime = new Date(newMessage.created_at).getTime();
   const newSeq = newMessage.device_sequence ?? 0;
 
@@ -75,7 +76,7 @@ function findInsertionIndex(
 }
 
 const messagesSlice = createSlice({
-  name: 'messages',
+  name: "messages",
   initialState,
   reducers: {
     setMessages: (
@@ -122,7 +123,11 @@ const messagesSlice = createSlice({
     },
     updateMessage: (
       state,
-      action: PayloadAction<{ groupId: string; messageId: string; updates: Partial<Message> }>
+      action: PayloadAction<{
+        groupId: string;
+        messageId: string;
+        updates: Partial<Message>;
+      }>
     ) => {
       const { groupId, messageId, updates } = action.payload;
       const groupState = state.byGroupId[groupId];
@@ -177,29 +182,20 @@ const messagesSlice = createSlice({
         state.receivedMessageIds.push(messageId);
       }
     },
-    queuePendingMessage: (
-      state,
-      action: PayloadAction<Message>
-    ) => {
+    queuePendingMessage: (state, action: PayloadAction<Message>) => {
       const message = action.payload;
       // Avoid duplicates
       if (!state.pendingMessages.find((m) => m.id === message.id)) {
         state.pendingMessages.push(message);
       }
     },
-    removePendingMessage: (
-      state,
-      action: PayloadAction<string>
-    ) => {
+    removePendingMessage: (state, action: PayloadAction<string>) => {
       const messageId = action.payload;
       state.pendingMessages = state.pendingMessages.filter(
         (m) => m.id !== messageId
       );
     },
-    clearMessages: (
-      state,
-      action: PayloadAction<{ groupId: string }>
-    ) => {
+    clearMessages: (state, action: PayloadAction<{ groupId: string }>) => {
       const { groupId } = action.payload;
       delete state.byGroupId[groupId];
     },
@@ -208,7 +204,11 @@ const messagesSlice = createSlice({
       state,
       action: PayloadAction<{
         groupId: string;
-        pinnedMessages: Array<{ message: Message; pinned_at: string; pinned_by_device_id: string }>;
+        pinnedMessages: Array<{
+          message: Message;
+          pinned_at: string;
+          pinned_by_device_id: string;
+        }>;
       }>
     ) => {
       const { groupId, pinnedMessages } = action.payload;
@@ -269,7 +269,8 @@ export const {
 } = messagesSlice.actions;
 
 // Base selector
-const selectMessagesState = (state: { messages: MessagesState }) => state.messages;
+const selectMessagesState = (state: { messages: MessagesState }) =>
+  state.messages;
 
 // Optimized selectors using createSelector
 export const selectPendingMessages = createSelector(
@@ -284,33 +285,49 @@ export const selectReceivedMessageIds = createSelector(
 
 // Parametrized selectors (using factory pattern for createSelector)
 export const selectMessagesByGroupId = createSelector(
-  [selectMessagesState, (_state: { messages: MessagesState }, groupId: string) => groupId],
+  [
+    selectMessagesState,
+    (_state: { messages: MessagesState }, groupId: string) => groupId,
+  ],
   (messages, groupId) => messages.byGroupId[groupId]?.messages || []
 );
 
 export const selectMessagesLoading = createSelector(
-  [selectMessagesState, (_state: { messages: MessagesState }, groupId: string) => groupId],
+  [
+    selectMessagesState,
+    (_state: { messages: MessagesState }, groupId: string) => groupId,
+  ],
   (messages, groupId) => messages.byGroupId[groupId]?.isLoading || false
 );
 
 export const selectMessagesError = createSelector(
-  [selectMessagesState, (_state: { messages: MessagesState }, groupId: string) => groupId],
+  [
+    selectMessagesState,
+    (_state: { messages: MessagesState }, groupId: string) => groupId,
+  ],
   (messages, groupId) => messages.byGroupId[groupId]?.error || null
 );
 
 export const hasReceivedMessage = createSelector(
-  [selectReceivedMessageIds, (_state: { messages: MessagesState }, messageId: string) => messageId],
+  [
+    selectReceivedMessageIds,
+    (_state: { messages: MessagesState }, messageId: string) => messageId,
+  ],
   (receivedIds, messageId) => receivedIds.includes(messageId)
 );
 
 export const selectGroupMessagesState = createSelector(
-  [selectMessagesState, (_state: { messages: MessagesState }, groupId: string) => groupId],
-  (messages, groupId) => messages.byGroupId[groupId] || {
-    messages: [],
-    isLoading: false,
-    error: null,
-    lastFetchedAt: null,
-  }
+  [
+    selectMessagesState,
+    (_state: { messages: MessagesState }, groupId: string) => groupId,
+  ],
+  (messages, groupId) =>
+    messages.byGroupId[groupId] || {
+      messages: [],
+      isLoading: false,
+      error: null,
+      lastFetchedAt: null,
+    }
 );
 
 /**
@@ -348,24 +365,36 @@ export const selectUnreadCountByGroupId = (
  * Selector for pinned messages by group ID
  */
 export const selectPinnedMessagesByGroupId = createSelector(
-  [selectMessagesState, (_state: { messages: MessagesState }, groupId: string) => groupId],
-  (messages, groupId) => messages.pinnedMessagesByGroupId[groupId]?.pinnedMessages || []
+  [
+    selectMessagesState,
+    (_state: { messages: MessagesState }, groupId: string) => groupId,
+  ],
+  (messages, groupId) =>
+    messages.pinnedMessagesByGroupId[groupId]?.pinnedMessages || []
 );
 
 /**
  * Selector for pinned messages loading state by group ID
  */
 export const selectPinnedMessagesLoading = createSelector(
-  [selectMessagesState, (_state: { messages: MessagesState }, groupId: string) => groupId],
-  (messages, groupId) => messages.pinnedMessagesByGroupId[groupId]?.isLoading || false
+  [
+    selectMessagesState,
+    (_state: { messages: MessagesState }, groupId: string) => groupId,
+  ],
+  (messages, groupId) =>
+    messages.pinnedMessagesByGroupId[groupId]?.isLoading || false
 );
 
 /**
  * Selector for pinned messages error by group ID
  */
 export const selectPinnedMessagesError = createSelector(
-  [selectMessagesState, (_state: { messages: MessagesState }, groupId: string) => groupId],
-  (messages, groupId) => messages.pinnedMessagesByGroupId[groupId]?.error || null
+  [
+    selectMessagesState,
+    (_state: { messages: MessagesState }, groupId: string) => groupId,
+  ],
+  (messages, groupId) =>
+    messages.pinnedMessagesByGroupId[groupId]?.error || null
 );
 
 export default messagesSlice.reducer;
