@@ -1,7 +1,9 @@
-# Ignore everything except web/ and api/
+# Ignore everything except web/, api/, .github/ và README ở root
 /*
 !/web/
 !/api/
+!/.github/
+!/README.md
 
 # Ignore .specify/ folder
 .specify/

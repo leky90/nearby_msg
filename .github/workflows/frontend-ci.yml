@@ -1,0 +1,131 @@
+name: Frontend CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - "web/**"
+      - ".github/workflows/frontend-ci.yml"
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - "web/**"
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/nearby-msg-web
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=
+            type=ref,event=branch
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      # Lint checks disabled to reduce build time
+      # - name: Run lint checks
+      #   working-directory: ./web
+      #   run: |
+      #     npm run lint || echo "Lint check failed (non-blocking for now)"
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./web
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64
+          # Pass BACKEND_URL as build argument for Next.js rewrites
+          # Next.js rewrites are evaluated at build time, so BACKEND_URL must be set during build
+          # Default to production backend URL, can be overridden per environment if needed
+          build-args: |
+            BACKEND_URL=${{ secrets.BACKEND_URL || 'https://newchap-api.ldktech.com' }}
+
+      - name: Trigger Coolify deployment
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+        env:
+          COOLIFY_WEBHOOK_URL: ${{ secrets.COOLIFY_WEBHOOK_URL_FRONTEND }}
+          COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+        run: |
+          if [ -n "$COOLIFY_WEBHOOK_URL" ]; then
+            echo "Triggering Coolify deployment for Docker image..."
+            # Extract branch name for image tag (e.g., refs/heads/main -> main)
+            BRANCH_NAME="${{ github.ref_name }}"
+            COMMIT_SHA="${{ github.sha }}"
+            echo "Branch: $BRANCH_NAME, Commit: $COMMIT_SHA"
+            
+            # Coolify v4 API: /api/v1/deploy supports uuid, tag, force parameters
+            # Extract UUID from webhook URL if present, otherwise use tag parameter
+            # Image tags: commit hash, branch name (main/develop), or latest
+            
+            # Extract base URL and UUID from webhook URL
+            # Format: https://coolify.example.com/api/v1/deploy?uuid=xxx&force=false
+            BASE_URL=$(echo "$COOLIFY_WEBHOOK_URL" | cut -d'?' -f1)
+            # Extract UUID parameter (compatible with both GNU and BSD grep)
+            UUID_PARAM=$(echo "$COOLIFY_WEBHOOK_URL" | sed -n 's/.*[?&]uuid=\([^&]*\).*/\1/p' || echo "")
+            
+            # Build request URL with parameters
+            if [ -n "$UUID_PARAM" ]; then
+              # Use UUID from webhook URL
+              DEPLOY_URL="${BASE_URL}?uuid=${UUID_PARAM}&force=true"
+              echo "Using UUID from webhook URL: $UUID_PARAM"
+            else
+              # Fallback: use tag parameter with branch name
+              DEPLOY_URL="${BASE_URL}?tag=${BRANCH_NAME}&force=true"
+              echo "Using tag parameter: $BRANCH_NAME"
+            fi
+            
+            # Prepare headers
+            HEADERS=(-H "Content-Type: application/json")
+            if [ -n "$COOLIFY_API_TOKEN" ]; then
+              HEADERS+=(-H "Authorization: Bearer $COOLIFY_API_TOKEN")
+              echo "Using API token for authentication"
+            else
+              echo "⚠️ COOLIFY_API_TOKEN not set, sending request without authentication"
+            fi
+            
+            # Send deployment request (GET or POST both supported by Coolify v4)
+            echo "Sending deployment request to: $DEPLOY_URL"
+            RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" -X GET "${HEADERS[@]}" "$DEPLOY_URL" 2>&1)
+            HTTP_CODE=$(echo "$RESPONSE" | grep "HTTP_CODE" | cut -d: -f2)
+            RESPONSE_BODY=$(echo "$RESPONSE" | grep -v "HTTP_CODE")
+            
+            if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ] || [ "$HTTP_CODE" = "204" ]; then
+              echo "✅ Deployment triggered successfully (HTTP $HTTP_CODE)"
+              echo "Response body: $RESPONSE_BODY"
+            else
+              echo "⚠️ Deployment response: HTTP $HTTP_CODE"
+              echo "Response body: $RESPONSE_BODY"
+              echo "Full response: $RESPONSE"
+              exit 1
+            fi
+          else
+            echo "⚠️ COOLIFY_WEBHOOK_URL_FRONTEND not set, skipping deployment trigger"
+          fi
