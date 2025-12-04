@@ -9,11 +9,6 @@ const getApiUrl = (): string => {
     return import.meta.env.VITE_BACKEND_URL;
   }
 
-  // Hỗ trợ VITE_API_URL để tương thích ngược nếu đã dùng trước đó
-  if (import.meta.env.VITE_API_URL) {
-    return import.meta.env.VITE_API_URL;
-  }
-
   // Trong môi trường development: dùng proxy tương đối
   if (import.meta.env.DEV) {
     return "/api"; // Proxy cấu hình trong vite.config.ts

@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"nearby-msg/api/internal/domain"
 	"nearby-msg/api/internal/infrastructure/auth"
 	"nearby-msg/api/internal/service"
 )
