@@ -64,6 +64,9 @@ jobs:
       - name: Configure GitHub Pages
         id: pages
         uses: actions/configure-pages@v4
+        with:
+          # Tự động enable Pages cho repo nếu chưa bật
+          enablement: true
 
       - name: Deploy to GitHub Pages
         id: deployment
