@@ -35,7 +35,8 @@ jobs:
           cache-dependency-path: "web/package-lock.json"
 
       - name: Install dependencies
-        run: npm ci
+        # Dùng npm install thay vì npm ci vì lockfile và package.json có thể không hoàn toàn khớp
+        run: npm install --legacy-peer-deps
 
       - name: Build Vite app for GitHub Pages
         env:
