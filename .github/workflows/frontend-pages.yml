@@ -39,8 +39,10 @@ jobs:
 
       - name: Build Vite app for GitHub Pages
         env:
-          # URL backend production: nearby-group-api.ldktech.com
-          VITE_BACKEND_URL: "https://nearby-group-api.ldktech.com"
+          # URL backend production, cấu hình trong repo secrets
+          # Settings -> Secrets and variables -> Actions -> New repository secret
+          # Key: VITE_BACKEND_URL, Value: https://nearby-group-api.ldktech.com (hoặc URL backend của bạn)
+          VITE_BACKEND_URL: ${{ secrets.VITE_BACKEND_URL }}
         run: |
           npm run build
           # Thêm CNAME để GitHub Pages dùng custom domain
