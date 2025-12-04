@@ -81,19 +81,26 @@ export async function sendSOSToAllGroups(sosType: SOSType): Promise<number> {
     throw new Error(cooldownError);
   }
 
-  // Check GPS permission
-  const gpsStatus = await getGPSStatus();
-  if (gpsStatus !== "granted") {
-    throw new Error(
-      "Vui lòng cấp quyền GPS để gửi SOS. Vị trí GPS là bắt buộc để người khác có thể tìm thấy bạn."
-    );
-  }
-
-  // Get GPS location
-  const location = await getCurrentLocation();
+  // Check GPS permission - try to get location first (most reliable check)
+  // If getCurrentLocation succeeds, permission is granted regardless of Permissions API status
+  let location = await getCurrentLocation();
   if (!location) {
+    // If getCurrentLocation fails, check permission status for better error message
+    const gpsStatus = await getGPSStatus();
+    if (gpsStatus === "denied") {
+      throw new Error(
+        "GPS đã bị từ chối. Vui lòng cấp quyền GPS trong cài đặt trình duyệt để gửi SOS."
+      );
+    }
+    if (gpsStatus === "unavailable") {
+      throw new Error(
+        "Trình duyệt của bạn không hỗ trợ GPS. Vui lòng sử dụng trình duyệt khác."
+      );
+    }
+    // If status is 'prompt' or unknown, location request might still work
+    // But if getCurrentLocation already failed, throw generic error
     throw new Error(
-      "Không thể lấy vị trí GPS. Vui lòng kiểm tra cài đặt GPS và thử lại."
+      "Không thể lấy vị trí GPS. Vui lòng cấp quyền GPS và thử lại."
     );
   }
 

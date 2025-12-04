@@ -57,25 +57,31 @@ export function SOSView() {
 
   const handleSendSOS = useCallback(
     async (type: SOSType) => {
-      if (gpsStatus !== "granted") {
-        showToast("Vui lòng cấp quyền GPS để gửi SOS.", "error");
-        dispatch(checkGPSStatusAction());
-        return;
-      }
-
+      // Re-check GPS status trước khi gửi (Redux state có thể chưa update kịp)
+      dispatch(checkGPSStatusAction());
+      
+      // Đợi một chút để Redux state được update (nếu có)
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // sendSOSToAllGroups sẽ tự check GPS permission và location thực tế
+      // Nếu GPS chưa được cấp, nó sẽ throw error với message rõ ràng
       try {
         const groupCount = await sendSOSToAllGroups(type);
         showToast(`Đã gửi SOS thành công đến ${groupCount} nhóm!`, "success");
         dispatch(setActiveTab("explore"));
+        // Update GPS status sau khi gửi thành công
+        dispatch(checkGPSStatusAction());
       } catch (error) {
         const errorMessage =
           error instanceof Error
             ? error.message
             : "Không thể gửi SOS. Vui lòng thử lại.";
         showToast(errorMessage, "error");
+        // Re-check GPS status sau khi lỗi để update Redux state
+        dispatch(checkGPSStatusAction());
       }
     },
-    [gpsStatus, dispatch]
+    [dispatch]
   );
 
   return (

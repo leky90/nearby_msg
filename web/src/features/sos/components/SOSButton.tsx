@@ -52,28 +52,25 @@ export function SOSButton({
   }
 
   const handleSOSClick = () => {
-    if (gpsStatus !== "granted") {
-      setError("Vui lòng cấp quyền GPS để gửi SOS.");
-      showToast("Vui lòng cấp quyền GPS để gửi SOS.", "error");
-      return;
-    }
-
+    // Re-check GPS status trước khi mở selector
+    dispatch(checkGPSStatusAction());
     setShowSelector(true);
     setError(null);
   };
 
   const handleSOSSelected = async (sosType: SOSType) => {
-    if (gpsStatus !== "granted") {
-      showToast("Vui lòng cấp quyền GPS để gửi SOS.", "error");
-      setShowSelector(false);
-      return;
-    }
-
+    // Re-check GPS status trước khi gửi (Redux state có thể chưa update kịp)
+    dispatch(checkGPSStatusAction());
+    
+    // sendSOSToAllGroups sẽ tự check GPS permission và location thực tế
+    // Nếu GPS chưa được cấp, nó sẽ throw error với message rõ ràng
     try {
       const groupCount = await sendSOSToAllGroups(sosType);
       setShowSelector(false);
       showToast(`Đã gửi SOS thành công đến ${groupCount} nhóm!`, "success");
       onSOSSent?.();
+      // Update GPS status sau khi gửi thành công
+      dispatch(checkGPSStatusAction());
     } catch (error) {
       const errorMessage =
         error instanceof Error
@@ -82,6 +79,8 @@ export function SOSButton({
       setError(errorMessage);
       showToast(errorMessage, "error");
       setShowSelector(false);
+      // Re-check GPS status sau khi lỗi để update Redux state
+      dispatch(checkGPSStatusAction());
     }
   };
 
