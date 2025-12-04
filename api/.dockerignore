@@ -1,0 +1,49 @@
+# Git
+.git
+.gitignore
+
+# Documentation
+*.md
+README.md
+docs/
+
+# Test files
+*_test.go
+*.test
+coverage.out
+handlers.test
+scheduler.test
+services.test
+
+# Build artifacts
+main
+tmp/
+*.exe
+*.out
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+*.log.*
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Scripts (not needed in container)
+scripts/
+
+# Migrations (handled separately if needed)
+migrations/
+
