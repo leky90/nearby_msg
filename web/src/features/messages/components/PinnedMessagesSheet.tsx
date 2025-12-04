@@ -22,6 +22,7 @@ import {
 import { ScrollArea } from "@/shared/components/ui/scroll-area";
 import { Button } from "@/shared/components/ui/button";
 import { MessageBubble } from "./MessageBubble";
+import { SOSMessage } from "./SOSMessage";
 import { cn } from "@/shared/lib/utils";
 import { t } from "@/shared/lib/i18n";
 import { format } from "date-fns";
@@ -205,7 +206,11 @@ export function PinnedMessagesSheet({
                       )}
                       onClick={() => handleMessageClick(pin.message.id)}
                     >
-                      <MessageBubble message={message} />
+                      {message.message_type === "sos" ? (
+                        <SOSMessage message={message} />
+                      ) : (
+                        <MessageBubble message={message} />
+                      )}
                     </div>
                     {onMessageClick && (
                       <Button

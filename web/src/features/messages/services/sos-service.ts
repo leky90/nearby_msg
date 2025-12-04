@@ -83,7 +83,7 @@ export async function sendSOSToAllGroups(sosType: SOSType): Promise<number> {
 
   // Check GPS permission - try to get location first (most reliable check)
   // If getCurrentLocation succeeds, permission is granted regardless of Permissions API status
-  let location = await getCurrentLocation();
+  const location = await getCurrentLocation();
   if (!location) {
     // If getCurrentLocation fails, check permission status for better error message
     const gpsStatus = await getGPSStatus();

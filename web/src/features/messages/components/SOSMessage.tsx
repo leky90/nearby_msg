@@ -3,10 +3,23 @@
  * Hiển thị tin nhắn SOS với màu nền tương ứng loại SOS (giống màn SOS)
  */
 
+import { useMemo } from "react";
+import { useSelector, useDispatch } from "react-redux";
 import type { Message } from "@/shared/domain/message";
 import { t } from "@/shared/lib/i18n";
 import { cn } from "@/shared/lib/utils";
-import { MapPin } from "lucide-react";
+import { MapPin, Pin, PinOff } from "lucide-react";
+import { Button } from "@/shared/components/ui/button";
+import {
+  pinMessage,
+  unpinMessage,
+} from "@/features/messages/services/pin-service";
+import { fetchPinnedMessagesAction } from "@/features/messages/store/saga";
+import { selectPinnedMessagesByGroupId } from "@/features/messages/store/slice";
+import { getOrCreateDeviceId } from "@/features/device/services/device-storage";
+import { showToast } from "@/shared/utils/toast";
+import { log } from "@/shared/lib/logging/logger";
+import type { RootState } from "@/store";
 
 export interface SOSMessageProps {
   /** SOS message to display */
@@ -79,10 +92,38 @@ const cardStyles: Record<
  * SOS Message component
  * Displays SOS messages with prominent visual styling and good contrast
  */
-export function SOSMessage({ message }: SOSMessageProps) {
+export function SOSMessage({ message, isOwn = false }: SOSMessageProps) {
+  const dispatch = useDispatch();
+
   if (message.message_type !== "sos" || !message.sos_type) {
     return null;
   }
+
+  // Get pinned messages for this group from Redux
+  const pinnedMessages = useSelector((state: RootState) =>
+    selectPinnedMessagesByGroupId(state, message.group_id)
+  );
+
+  // Check if this message is pinned by ANYONE in the group (for highlight)
+  const isPinnedByAnyone = useMemo(() => {
+    return pinnedMessages.some((pin) => pin.message.id === message.id);
+  }, [pinnedMessages, message.id]);
+
+  // Check if this message is pinned by CURRENT USER (for unpin button)
+  const isPinnedByCurrentUser = useMemo(() => {
+    const currentDeviceId = getOrCreateDeviceId();
+    return pinnedMessages.some(
+      (pin) =>
+        pin.message.id === message.id &&
+        pin.pinned_by_device_id === currentDeviceId
+    );
+  }, [pinnedMessages, message.id]);
+
+  // Only show pin button if message is not pinned by anyone, or pinned by current user
+  // Hide pin button if message is pinned by another user
+  const shouldShowPinButton = useMemo(() => {
+    return !isPinnedByAnyone || isPinnedByCurrentUser;
+  }, [isPinnedByAnyone, isPinnedByCurrentUser]);
 
   const sosType = message.sos_type;
   const sosLabel = getSOSTypeLabel(sosType);
@@ -117,14 +158,61 @@ export function SOSMessage({ message }: SOSMessageProps) {
     );
   };
 
+  const handlePinClick = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+
+    try {
+      if (isPinnedByCurrentUser) {
+        await unpinMessage(message.id);
+      } else {
+        await pinMessage(message.id, message.group_id);
+      }
+      // Refresh pinned messages for this group so UI updates immediately
+      dispatch(fetchPinnedMessagesAction(message.group_id));
+    } catch (err) {
+      const errorMessage =
+        err instanceof Error ? err.message : "Không thể ghim tin nhắn";
+
+      log.error("Failed to toggle pin", err, {
+        messageId: message.id,
+        isPinnedByCurrentUser,
+      });
+
+      // Show toast notification for user
+      showToast(errorMessage, "error");
+    }
+  };
+
   return (
-    <div
-      className={cn(
-        "rounded-xl border px-4 py-3",
-        "w-full max-w-full",
-        styles.container
+    <div className={cn("flex items-start gap-2", isOwn && "justify-end")}>
+      {/* Pin button for owner - on the left */}
+      {isOwn && shouldShowPinButton && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-5 w-5 p-0 shrink-0 transition-colors mt-1 text-muted-foreground hover:text-foreground hover:bg-muted"
+          onClick={handlePinClick}
+          aria-label={
+            isPinnedByCurrentUser ? "Bỏ ghim tin nhắn" : "Ghim tin nhắn"
+          }
+        >
+          {isPinnedByCurrentUser ? (
+            <PinOff className="h-3.5 w-3.5" />
+          ) : (
+            <Pin className="h-3.5 w-3.5" />
+          )}
+        </Button>
       )}
-    >
+
+      <div
+        className={cn(
+          "rounded-xl border px-4 py-3",
+          "w-full max-w-full",
+          styles.container,
+          isPinnedByAnyone &&
+            "ring-2 ring-pink-400 ring-offset-1"
+        )}
+      >
       <div className="flex items-center gap-2 mb-1">
         <span className="text-2xl">{sosIcon}</span>
         <div className="flex flex-col flex-1 min-w-0">
@@ -148,7 +236,7 @@ export function SOSMessage({ message }: SOSMessageProps) {
       </div>
 
       {mainText && (
-        <div className="text-sm leading-relaxed mb-1 text-current break-words">
+        <div className="text-sm leading-relaxed mb-1 text-current wrap-break-word">
           {mainText}
         </div>
       )}
@@ -173,6 +261,26 @@ export function SOSMessage({ message }: SOSMessageProps) {
           minute: "2-digit",
         })}
       </div>
+      </div>
+
+      {/* Pin button for other users - on the right */}
+      {!isOwn && shouldShowPinButton && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-5 w-5 p-0 shrink-0 transition-colors mt-1 text-muted-foreground hover:text-foreground hover:bg-muted"
+          onClick={handlePinClick}
+          aria-label={
+            isPinnedByCurrentUser ? "Bỏ ghim tin nhắn" : "Ghim tin nhắn"
+          }
+        >
+          {isPinnedByCurrentUser ? (
+            <PinOff className="h-3.5 w-3.5" />
+          ) : (
+            <Pin className="h-3.5 w-3.5" />
+          )}
+        </Button>
+      )}
     </div>
   );
 }
