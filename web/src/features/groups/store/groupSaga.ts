@@ -921,7 +921,7 @@ function createGroupsEventChannel(): EventChannel<Group[]> {
         // Subscribe to collection changes using collection.$ observable
         // This emits whenever ANY document in the collection changes (insert, update, delete)
         // changeEvent contains: { operation: 'INSERT' | 'UPDATE' | 'DELETE', documentData: {...} }
-        const subscription = db.groups.$.subscribe(async (changeEvent) => {
+        const subscription = db.groups.$.subscribe(async (changeEvent: any) => {
           if (!isActive) return;
 
           try {

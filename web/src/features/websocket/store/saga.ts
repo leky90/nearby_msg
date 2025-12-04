@@ -899,16 +899,16 @@ function createPendingMessagesChannel(
         // Subscribe to query changes
         // This will emit whenever pending messages are added/updated/removed
         subscription = query.$.subscribe({
-          next: (docs) => {
+          next: (docs: any[]) => {
             if (!isActive) return;
 
-            const messages = docs.map((doc) => doc.toJSON() as Message);
+            const messages = docs.map((doc: any) => doc.toJSON() as Message);
 
             log.debug("Query subscription emitted pending messages", {
               groupId,
               deviceId,
               count: messages.length,
-              messageIds: messages.map((m) => m.id),
+              messageIds: messages.map((m: Message) => m.id),
             });
 
             // Emit new pending messages that haven't been sent yet
@@ -927,8 +927,8 @@ function createPendingMessagesChannel(
               }
             }
           },
-          error: (error) => {
-            log.error("Error in query subscription", error, {
+          error: (error: unknown) => {
+            log.error("Error in query subscription", error as Error, {
               groupId,
               deviceId,
             });
@@ -942,8 +942,8 @@ function createPendingMessagesChannel(
           deviceId,
         });
       })
-      .catch((error) => {
-        log.error("Failed to setup RxDB subscription", error, {
+      .catch((error: unknown) => {
+        log.error("Failed to setup RxDB subscription", error as Error, {
           groupId,
           deviceId,
         });

@@ -359,7 +359,7 @@ function createDevicesEventChannel(): EventChannel<Device[]> {
       
       // Subscribe to collection changes using collection.$ observable
       // This emits whenever ANY document in the collection changes (insert, update, delete)
-      const subscription = db.devices.$.subscribe(async (changeEvent) => {
+      const subscription = db.devices.$.subscribe(async (changeEvent: any) => {
         if (!isActive) return;
         
         try {

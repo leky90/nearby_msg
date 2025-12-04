@@ -109,7 +109,7 @@ function createUserStatusEventChannel(): EventChannel<UserStatus | null> {
       
       // Subscribe to collection changes using collection.$ observable
       // This emits whenever ANY document in the collection changes (insert, update, delete)
-      const subscription = db.user_status.$.subscribe(async (changeEvent) => {
+      const subscription = db.user_status.$.subscribe(async (changeEvent: any) => {
         if (!isActive) return;
         
         try {

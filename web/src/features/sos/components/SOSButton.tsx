@@ -21,8 +21,6 @@ import { showToast } from "@/shared/utils/toast";
 import type { RootState } from "@/store";
 
 export interface SOSButtonProps {
-  /** Group ID to send SOS message to */
-  groupId?: string;
   /** Callback when SOS message is sent */
   onSOSSent?: () => void;
   /** Button variant */
@@ -38,7 +36,6 @@ export interface SOSButtonProps {
  * Displays an emergency SOS button that opens SOS type selector
  */
 export function SOSButton({
-  groupId,
   onSOSSent,
   variant = "destructive",
   size = "default",

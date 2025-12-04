@@ -48,6 +48,7 @@
     "redux-persist": "^6.0.0",
     "redux-saga": "^1.4.2",
     "rxdb": "^16.21.0",
+    "rxjs": "^7.8.1",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.4.0",
     "tailwind-variants": "^3.2.2",
