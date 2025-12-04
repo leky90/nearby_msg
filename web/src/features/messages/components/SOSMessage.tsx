@@ -209,58 +209,59 @@ export function SOSMessage({ message, isOwn = false }: SOSMessageProps) {
           "rounded-xl border px-4 py-3",
           "w-full max-w-full",
           styles.container,
-          isPinnedByAnyone &&
-            "ring-2 ring-pink-400 ring-offset-1"
+          isPinnedByAnyone && "ring-2 ring-pink-400 ring-offset-1"
         )}
       >
-      <div className="flex items-center gap-2 mb-1">
-        <span className="text-2xl">{sosIcon}</span>
-        <div className="flex flex-col flex-1 min-w-0">
-          <span className={cn("font-bold text-base sm:text-lg", styles.title)}>
-            {sosLabel}
-          </span>
-          {sosDescription && (
-            <span className="text-[11px] text-gray-700 truncate">
-              {sosDescription}
+        <div className="flex items-center gap-2 mb-1">
+          <span className="text-2xl">{sosIcon}</span>
+          <div className="flex flex-col flex-1 min-w-0">
+            <span
+              className={cn("font-bold text-base sm:text-lg", styles.title)}
+            >
+              {sosLabel}
             </span>
-          )}
+            {sosDescription && (
+              <span className="text-[11px] text-gray-700 truncate">
+                {sosDescription}
+              </span>
+            )}
+          </div>
+          <span
+            className={cn(
+              "ml-auto rounded-full px-3 py-1 text-[11px] font-semibold shadow-sm",
+              styles.chip
+            )}
+          >
+            {t("common.urgent") || "KHẨN CẤP"}
+          </span>
         </div>
-        <span
-          className={cn(
-            "ml-auto rounded-full px-3 py-1 text-[11px] font-semibold shadow-sm",
-            styles.chip
-          )}
-        >
-          {t("common.urgent") || "KHẨN CẤP"}
-        </span>
-      </div>
 
-      {mainText && (
-        <div className="text-sm leading-relaxed mb-1 text-current wrap-break-word">
-          {mainText}
+        {mainText && (
+          <div className="text-sm leading-relaxed mb-1 text-current wrap-break-word">
+            {mainText}
+          </div>
+        )}
+
+        {locationText && (
+          <button
+            type="button"
+            onClick={handleOpenMaps}
+            className="mt-1 inline-flex items-center gap-1 text-xs text-blue-700 hover:text-blue-900 underline decoration-blue-400"
+          >
+            <MapPin className="w-3 h-3" />
+            <span>{`${locationKey} ${locationText}`}</span>
+          </button>
+        )}
+
+        <div className="mt-2 text-[11px] leading-none text-gray-600">
+          {new Date(message.created_at).toLocaleString("vi-VN", {
+            day: "2-digit",
+            month: "2-digit",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          })}
         </div>
-      )}
-
-      {locationText && (
-        <button
-          type="button"
-          onClick={handleOpenMaps}
-          className="mt-1 inline-flex items-center gap-1 text-xs text-blue-700 hover:text-blue-900 underline decoration-blue-400"
-        >
-          <MapPin className="w-3 h-3" />
-          <span>{`${locationKey} ${locationText}`}</span>
-        </button>
-      )}
-
-      <div className="mt-2 text-[11px] leading-none text-gray-600">
-        {new Date(message.created_at).toLocaleString("vi-VN", {
-          day: "2-digit",
-          month: "2-digit",
-          year: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-        })}
-      </div>
       </div>
 
       {/* Pin button for other users - on the right */}

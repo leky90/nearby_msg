@@ -8,6 +8,7 @@
 ### Tính năng chính
 
 #### 💬 Chat theo vị trí
+
 - **Tìm nhóm nearby**: Tự động tìm các nhóm chat trong bán kính xung quanh vị trí GPS của bạn
 - **Lọc theo bán kính**: Điều chỉnh bán kính tìm kiếm (100m, 500m, 1km, 5km, 10km)
 - **Tạo nhóm mới**: Tạo nhóm chat mới tại vị trí hiện tại
@@ -16,13 +17,15 @@
 - **Offline-first**: Hoạt động offline, tự động đồng bộ khi có mạng
 
 #### 📌 Ghim tin nhắn
+
 - **Ghim tin nhắn quan trọng**: Đánh dấu tin nhắn quan trọng trong nhóm
 - **Xem tin nhắn đã ghim**: Sheet hiển thị tất cả tin nhắn đã ghim trong nhóm
 - **Quyền ghim**: Chỉ người ghim mới có thể bỏ ghim tin nhắn của mình
 - **Đồng bộ real-time**: Tin nhắn ghim được đồng bộ real-time qua WebSocket
 
 #### 🚨 SOS khẩn cấp
-- **4 loại SOS**: 
+
+- **4 loại SOS**:
   - 🏥 SOS cấp cứu (medical)
   - 🔥 SOS cháy nổ (fire)
   - 💧 SOS lũ lụt (flood)
@@ -34,30 +37,35 @@
 - **Cooldown**: Giới hạn 30 giây giữa các lần gửi SOS để tránh spam
 
 #### 👤 Quản lý tài khoản
+
 - **Nickname**: Đặt và cập nhật tên hiển thị
 - **Vị trí**: Xem và cập nhật vị trí GPS hiện tại
 - **Trạng thái người dùng**: Cập nhật trạng thái (available, busy, away, offline)
 - **Xóa dữ liệu**: Xóa dữ liệu local và đăng xuất
 
 #### 📱 Progressive Web App (PWA)
+
 - **Offline support**: Hoạt động hoàn toàn offline với RxDB
 - **Installable**: Cài đặt như ứng dụng native trên mobile/desktop
 - **Service Worker**: Cache tài nguyên và hỗ trợ background sync
 - **Auto-update**: Thông báo khi có phiên bản mới
 
 #### 🔄 Đồng bộ dữ liệu
+
 - **Replication push/pull**: Đồng bộ hai chiều giữa client và server
 - **Mutation queue**: Hàng đợi các thay đổi khi offline, tự động gửi khi online
 - **Pull replication định kỳ**: Tự động pull dữ liệu mới mỗi 30 giây
 - **Sync status**: Hiển thị trạng thái đồng bộ trong giao diện
 
 #### 🌐 WebSocket Real-time
+
 - **Kết nối tự động**: Tự động kết nối và reconnect khi mất kết nối
 - **Broadcast tin nhắn**: Server broadcast tin nhắn mới tới tất cả client trong nhóm
 - **Sự kiện pin/unpin**: Đồng bộ real-time khi có tin nhắn được ghim/bỏ ghim
 - **Status indicator**: Hiển thị trạng thái kết nối WebSocket
 
 #### 🔒 Bảo mật & Rate Limiting
+
 - **CORS**: Chỉ cho phép các origin đã được xác định
 - **Rate limiting**: Giới hạn số lượng tin nhắn và SOS messages
 - **Message validation**: Kiểm tra độ dài nội dung, tags, và các trường bắt buộc
