@@ -7,17 +7,17 @@ import { useEffect, useMemo } from "react";
 import type { Message } from "@/shared/domain/message";
 import { useSelector, useDispatch } from "react-redux";
 import {
-    selectPinnedMessagesByGroupId,
-    selectPinnedMessagesLoading,
-    selectPinnedMessagesError,
+  selectPinnedMessagesByGroupId,
+  selectPinnedMessagesLoading,
+  selectPinnedMessagesError,
 } from "@/features/messages/store/slice";
 import { fetchPinnedMessagesAction } from "@/features/messages/store/saga";
 import type { RootState } from "@/store";
 import {
-    Sheet,
-    SheetContent,
-    SheetHeader,
-    SheetTitle,
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
 } from "@/shared/components/ui/sheet";
 import { ScrollArea } from "@/shared/components/ui/scroll-area";
 import { Button } from "@/shared/components/ui/button";
@@ -98,7 +98,7 @@ export function PinnedMessagesSheet({
 
   const handleUnpin = async (messageId: string, pinnedByDeviceId: string) => {
     const currentDeviceId = getOrCreateDeviceId();
-    
+
     // Only allow unpinning if current user pinned it
     if (pinnedByDeviceId !== currentDeviceId) {
       showToast("Bạn chỉ có thể bỏ ghim tin nhắn mà bạn đã ghim", "error");
@@ -111,7 +111,8 @@ export function PinnedMessagesSheet({
       dispatch(fetchPinnedMessagesAction(groupId));
       showToast("Đã bỏ ghim tin nhắn", "success");
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "Không thể bỏ ghim tin nhắn";
+      const errorMessage =
+        err instanceof Error ? err.message : "Không thể bỏ ghim tin nhắn";
       log.error("Failed to unpin message", err, { messageId });
       showToast(errorMessage, "error");
     }
@@ -163,8 +164,9 @@ export function PinnedMessagesSheet({
               {pinnedMessages.map((pin) => {
                 const message = pin.message;
                 const currentDeviceId = getOrCreateDeviceId();
-                const isPinnedByCurrentUser = pin.pinned_by_device_id === currentDeviceId;
-                
+                const isPinnedByCurrentUser =
+                  pin.pinned_by_device_id === currentDeviceId;
+
                 if (!message) {
                   return (
                     <div
@@ -176,10 +178,17 @@ export function PinnedMessagesSheet({
                   );
                 }
 
+                const isSOS = message.message_type === "sos";
+                const isOwn = message.device_id === currentDeviceId;
+
                 return (
                   <div
                     key={pin.message.id}
-                    className="rounded-lg border bg-card p-3 space-y-2"
+                    className={cn(
+                      "rounded-lg border bg-card p-3 space-y-2",
+                      // Highlight pinned SOS messages
+                      isSOS && "ring-2 ring-pink-400 ring-offset-1"
+                    )}
                   >
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] text-muted-foreground">
@@ -192,26 +201,39 @@ export function PinnedMessagesSheet({
                           variant="ghost"
                           size="sm"
                           className="h-6 px-2 text-xs text-muted-foreground hover:text-destructive"
-                          onClick={() => handleUnpin(pin.message.id, pin.pinned_by_device_id)}
+                          onClick={() =>
+                            handleUnpin(pin.message.id, pin.pinned_by_device_id)
+                          }
                         >
                           <PinOff className="h-3 w-3 mr-1" />
                           Bỏ ghim
                         </Button>
                       )}
                     </div>
-                    <div
-                      className={cn(
-                        "cursor-pointer",
-                        !onMessageClick && "cursor-default"
-                      )}
-                      onClick={() => handleMessageClick(pin.message.id)}
-                    >
-                      {message.message_type === "sos" ? (
-                        <SOSMessage message={message} />
-                      ) : (
+                    {isSOS ? (
+                      // SOS message: wrap similar to MessageList style
+                      <div
+                        className={cn(
+                          "cursor-pointer rounded-lg p-2 transition-colors hover:bg-accent",
+                          !onMessageClick && "cursor-default",
+                          isOwn && "ml-auto"
+                        )}
+                        onClick={() => handleMessageClick(pin.message.id)}
+                      >
+                        <SOSMessage message={message} isOwn={isOwn} />
+                      </div>
+                    ) : (
+                      // Regular message
+                      <div
+                        className={cn(
+                          "cursor-pointer",
+                          !onMessageClick && "cursor-default"
+                        )}
+                        onClick={() => handleMessageClick(pin.message.id)}
+                      >
                         <MessageBubble message={message} />
-                      )}
-                    </div>
+                      </div>
+                    )}
                     {onMessageClick && (
                       <Button
                         variant="outline"
