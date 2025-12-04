@@ -61,7 +61,7 @@ export function SOSButton({
   const handleSOSSelected = async (sosType: SOSType) => {
     // Re-check GPS status trước khi gửi (Redux state có thể chưa update kịp)
     dispatch(checkGPSStatusAction());
-    
+
     // sendSOSToAllGroups sẽ tự check GPS permission và location thực tế
     // Nếu GPS chưa được cấp, nó sẽ throw error với message rõ ràng
     try {

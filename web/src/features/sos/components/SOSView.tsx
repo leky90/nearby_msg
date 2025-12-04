@@ -59,10 +59,10 @@ export function SOSView() {
     async (type: SOSType) => {
       // Re-check GPS status trước khi gửi (Redux state có thể chưa update kịp)
       dispatch(checkGPSStatusAction());
-      
+
       // Đợi một chút để Redux state được update (nếu có)
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
       // sendSOSToAllGroups sẽ tự check GPS permission và location thực tế
       // Nếu GPS chưa được cấp, nó sẽ throw error với message rõ ràng
       try {
