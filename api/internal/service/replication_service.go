@@ -31,6 +31,7 @@ type ReplicationService struct {
 	favoriteService *FavoriteService
 	statusService   *StatusService
 	deviceService   *DeviceService
+	websocketService *WebSocketService
 }
 
 // NewReplicationService creates a new replication service.
@@ -46,6 +47,7 @@ func NewReplicationService(
 	favoriteService *FavoriteService,
 	statusService *StatusService,
 	deviceService *DeviceService,
+	websocketService *WebSocketService,
 ) *ReplicationService {
 	return &ReplicationService{
 		messageRepo:     messageRepo,
@@ -59,6 +61,7 @@ func NewReplicationService(
 		favoriteService: favoriteService,
 		statusService:   statusService,
 		deviceService:   deviceService,
+		websocketService: websocketService,
 	}
 }
 
@@ -238,6 +241,30 @@ func (s *ReplicationService) PushMessages(ctx context.Context, deviceID string, 
 			if err := s.messageRepo.TrimOldMessages(ctx, groupID, maxMessagesPerGroup); err != nil {
 				return fmt.Errorf("failed to enforce retention for group %s: %w", groupID, err)
 			}
+		}
+	}
+
+	// After storing messages and enforcing retention, broadcast them via WebSocket
+	// so online clients receive real-time updates even when messages arrive via replication push.
+	if s.websocketService != nil {
+		for _, msg := range domainMessages {
+			wsMsg := WebSocketMessage{
+				Type: "new_message",
+				Payload: map[string]interface{}{
+					"id":             msg.ID,
+					"groupId":        msg.GroupID,
+					"deviceId":       msg.DeviceID,
+					"content":        msg.Content,
+					"messageType":    string(msg.MessageType),
+					"sosType":        msg.SOSType,
+					"tags":           msg.Tags,
+					"pinned":         msg.Pinned,
+					"createdAt":      msg.CreatedAt.Format(time.RFC3339),
+					"deviceSequence": msg.DeviceSequence,
+				},
+				Timestamp: now.Format(time.RFC3339),
+			}
+			s.websocketService.BroadcastToGroup(msg.GroupID, wsMsg)
 		}
 	}
 

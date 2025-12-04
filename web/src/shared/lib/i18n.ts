@@ -1,7 +1,7 @@
 /**
  * Vietnamese Translation System
  * Single-language translation object for emergency app
- * 
+ *
  * Translation Keys Structure:
  * - sos.*: SOS emergency type labels and descriptions
  * - status.*: User safety status labels and descriptions
@@ -27,7 +27,7 @@
  *   - component.pinnedMessages.*: Pinned messages modal
  *   - component.connectivityStatus.*: Connectivity status component
  * - message.sosDefault.*: Default SOS message templates
- * 
+ *
  * Usage:
  * ```ts
  * import { t } from "@/shared/lib/i18n";
@@ -42,12 +42,14 @@ export const translations = {
     medical: "Cấp cứu Y tế",
     flood: "Cấp cứu Lũ lụt",
     fire: "Cấp cứu Hỏa hoạn",
-    missingPerson: "Người mất tích",
+    // Đổi nội dung hiển thị sang SOS mắc kẹt
+    missingPerson: "SOS mắc kẹt",
     description: {
       medical: "Cần hỗ trợ y tế khẩn cấp",
       flood: "Cần hỗ trợ sơ tán",
       fire: "Cần hỗ trợ chữa cháy khẩn cấp",
-      missingPerson: "Cần tìm người mất tích",
+      // Mô tả cho SOS mắc kẹt
+      missingPerson: "Có người đang bị mắc kẹt, cần hỗ trợ khẩn cấp",
     },
   },
   status: {
@@ -122,18 +124,23 @@ export const translations = {
   page: {
     home: {
       title: "Cộng đồng Gần Bạn",
-      subtitle: "Kết nối với cộng đồng địa phương để chia sẻ thông tin khẩn cấp và hỗ trợ lẫn nhau",
+      subtitle:
+        "Kết nối với cộng đồng địa phương để chia sẻ thông tin khẩn cấp và hỗ trợ lẫn nhau",
       emergencySOS: "SOS Khẩn cấp",
       emergencySOSDescription: "Gửi tin nhắn SOS khẩn cấp đến các nhóm gần đây",
       myStatus: "Trạng thái của tôi",
-      myStatusDescription: "Cập nhật trạng thái an toàn để người khác biết tình hình của bạn",
+      myStatusDescription:
+        "Cập nhật trạng thái an toàn để người khác biết tình hình của bạn",
       discoverGroups: "Khám phá Nhóm",
       discoverGroupsDescription: "Tìm và tham gia các nhóm khu vực gần đây",
       createGroup: "Tạo Nhóm",
-      createGroupDescription: "Tạo nhóm theo khu vực để chia sẻ thông tin khẩn cấp",
+      createGroupDescription:
+        "Tạo nhóm theo khu vực để chia sẻ thông tin khẩn cấp",
       favoriteGroups: "Nhóm Quan tâm",
-      favoriteGroupsDescription: "Theo dõi các nhóm khu vực quan trọng để nhận thông tin khẩn cấp",
-      noFavoriteGroups: "Chưa có nhóm quan tâm. Khám phá nhóm để theo dõi các khu vực quan trọng.",
+      favoriteGroupsDescription:
+        "Theo dõi các nhóm khu vực quan trọng để nhận thông tin khẩn cấp",
+      noFavoriteGroups:
+        "Chưa có nhóm quan tâm. Khám phá nhóm để theo dõi các khu vực quan trọng.",
     },
     chat: {
       noGroupSelected: "Chưa chọn nhóm",
@@ -145,13 +152,16 @@ export const translations = {
       title: "Nhóm Gần Đây",
       description: "Tìm và tham gia các nhóm khu vực gần bạn",
       noGroupsFound: "Không tìm thấy nhóm nào trong bán kính {radius}m.",
-      tryIncreasingRadius: "Thử tăng bán kính tìm kiếm hoặc tạo nhóm khu vực mới.",
+      tryIncreasingRadius:
+        "Thử tăng bán kính tìm kiếm hoặc tạo nhóm khu vực mới.",
     },
     createGroup: {
       title: "Tạo Nhóm Khu Vực",
-      description: "Tạo nhóm theo khu vực để chia sẻ thông tin khẩn cấp và hỗ trợ lẫn nhau. Mỗi thiết bị chỉ có thể tạo một nhóm.",
-      groupCreated: "Nhóm \"{name}\" đã được tạo.",
-      canStartChatting: "Bạn có thể bắt đầu chia sẻ thông tin khẩn cấp với các thành viên trong khu vực gần đây.",
+      description:
+        "Tạo nhóm theo khu vực để chia sẻ thông tin khẩn cấp và hỗ trợ lẫn nhau. Mỗi thiết bị chỉ có thể tạo một nhóm.",
+      groupCreated: 'Nhóm "{name}" đã được tạo.',
+      canStartChatting:
+        "Bạn có thể bắt đầu chia sẻ thông tin khẩn cấp với các thành viên trong khu vực gần đây.",
     },
   },
   component: {
@@ -197,7 +207,8 @@ export const translations = {
       locationRequired: "Vị trí là bắt buộc",
       creating: "Đang tạo...",
       createGroup: "Tạo Nhóm Khu Vực",
-      alreadyCreatedGroup: "Bạn đã tạo nhóm. Mỗi thiết bị chỉ có thể tạo một nhóm khu vực.",
+      alreadyCreatedGroup:
+        "Bạn đã tạo nhóm. Mỗi thiết bị chỉ có thể tạo một nhóm khu vực.",
       failedToCreate: "Tạo nhóm thất bại. Vui lòng thử lại.",
     },
     chatHeader: {
@@ -263,7 +274,8 @@ export const translations = {
       medical: "🚨 Cấp cứu Y tế - Cần hỗ trợ khẩn cấp!",
       flood: "🚨 Cấp cứu Lũ lụt - Cần hỗ trợ sơ tán!",
       fire: "🚨 Cấp cứu Hỏa hoạn - Cần hỗ trợ khẩn cấp!",
-      missing_person: "🚨 Người mất tích - Cần tìm người!",
+      // Nội dung mặc định cho SOS mắc kẹt
+      missing_person: "🚨 SOS mắc kẹt - Cần hỗ trợ khẩn cấp!",
       default: "🚨 Cấp cứu - Cần hỗ trợ!",
     },
   },
@@ -279,7 +291,10 @@ import { log } from "./logging/logger";
  * @param params - Optional parameters for string interpolation
  * @returns Translated string
  */
-export function t(key: string, params?: Record<string, string | number>): string {
+export function t(
+  key: string,
+  params?: Record<string, string | number>
+): string {
   const keys = key.split(".");
   let value: unknown = translations;
 
@@ -306,4 +321,3 @@ export function t(key: string, params?: Record<string, string | number>): string
 
   return value;
 }
-

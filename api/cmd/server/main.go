@@ -68,6 +68,11 @@ func main() {
 	favoriteService := service.NewFavoriteService(favoriteRepo)
 	statusService := service.NewStatusService(statusRepo)
 	pinService := service.NewPinService(pinRepo, messageRepo)
+
+	// Initialize WebSocket service (needed by replication service for broadcasting)
+	wsService := service.NewWebSocketService(messageService, messageRepo, pinService)
+
+	// Initialize Replication service (now with WebSocket dependency for broadcasting)
 	replicationService := service.NewReplicationService(
 		messageRepo,
 		groupRepo,
@@ -80,10 +85,8 @@ func main() {
 		favoriteService,
 		statusService,
 		deviceService,
+		wsService,
 	)
-
-	// Initialize WebSocket service
-	wsService := service.NewWebSocketService(messageService, messageRepo, pinService)
 
 	// Start WebSocket service hub
 	go wsService.Run(ctx)

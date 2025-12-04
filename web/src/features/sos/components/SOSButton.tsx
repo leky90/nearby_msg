@@ -5,14 +5,20 @@
 
 import { useState } from "react";
 import { AlertTriangle } from "lucide-react";
-import { useDispatch } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 import type { SOSType } from "@/shared/domain/message";
-import { sendSOSMessageAction } from "@/features/messages/store/saga";
+import { sendSOSToAllGroups } from "@/features/messages/services/sos-service";
 import { SOSSelector } from "./SOSSelector";
 import { Button } from "@/shared/components/ui/button";
 import { Alert, AlertDescription } from "@/shared/components/ui/alert";
 import { t } from "@/shared/lib/i18n";
 import { cn } from "@/shared/lib/utils";
+import {
+  selectGPSStatus,
+  checkGPSStatusAction,
+} from "@/features/navigation/store/appSlice";
+import { showToast } from "@/shared/utils/toast";
+import type { RootState } from "@/store";
 
 export interface SOSButtonProps {
   /** Group ID to send SOS message to */
@@ -39,12 +45,19 @@ export function SOSButton({
   className = "",
 }: SOSButtonProps) {
   const dispatch = useDispatch();
+  const gpsStatus = useSelector((state: RootState) => selectGPSStatus(state));
   const [showSelector, setShowSelector] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Check GPS status on mount
+  if (!gpsStatus) {
+    dispatch(checkGPSStatusAction());
+  }
+
   const handleSOSClick = () => {
-    if (!groupId) {
-      setError("Chưa chọn nhóm");
+    if (gpsStatus !== "granted") {
+      setError("Vui lòng cấp quyền GPS để gửi SOS.");
+      showToast("Vui lòng cấp quyền GPS để gửi SOS.", "error");
       return;
     }
 
@@ -52,13 +65,27 @@ export function SOSButton({
     setError(null);
   };
 
-  const handleSOSSelected = (sosType: SOSType) => {
-    if (!groupId) return;
+  const handleSOSSelected = async (sosType: SOSType) => {
+    if (gpsStatus !== "granted") {
+      showToast("Vui lòng cấp quyền GPS để gửi SOS.", "error");
+      setShowSelector(false);
+      return;
+    }
 
-    // Dispatch Redux action - saga handles the rest
-    dispatch(sendSOSMessageAction(groupId, sosType));
-    setShowSelector(false);
-    onSOSSent?.();
+    try {
+      const groupCount = await sendSOSToAllGroups(sosType);
+      setShowSelector(false);
+      showToast(`Đã gửi SOS thành công đến ${groupCount} nhóm!`, "success");
+      onSOSSent?.();
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error
+          ? error.message
+          : "Không thể gửi SOS. Vui lòng thử lại.";
+      setError(errorMessage);
+      showToast(errorMessage, "error");
+      setShowSelector(false);
+    }
   };
 
   const handleCloseSelector = () => {
@@ -75,7 +102,7 @@ export function SOSButton({
         variant={variant === "destructive" ? "sos" : variant}
         size={size === "sm" ? "default" : size} // Ensure minimum h-12
         onClick={handleSOSClick}
-        isDisabled={!groupId}
+        isDisabled={gpsStatus !== "granted"}
         aria-label={t("button.sendSOS")}
         className={cn(className, "min-h-12")}
       >
@@ -89,7 +116,7 @@ export function SOSButton({
         </Alert>
       )}
 
-      {showSelector && groupId && (
+      {showSelector && (
         <SOSSelector
           onSelect={handleSOSSelected}
           onClose={handleCloseSelector}
