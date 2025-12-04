@@ -42,12 +42,15 @@ jobs:
         env:
           # URL backend production, cấu hình trong repo secrets
           # Settings -> Secrets and variables -> Actions -> New repository secret
-          # Key: VITE_BACKEND_URL, Value: https://nearby-group-api.ldktech.com (hoặc URL backend của bạn)
+          # Key: VITE_BACKEND_URL, Value: https://nearby-group-api.ldktech.com/v1 (hoặc URL backend của bạn)
           VITE_BACKEND_URL: ${{ secrets.VITE_BACKEND_URL }}
         run: |
           npm run build
           # Thêm CNAME để GitHub Pages dùng custom domain
           echo "nearby-group.ldktech.com" > dist/CNAME
+          # Copy index.html thành 404.html để GitHub Pages fallback về root khi reload route con
+          # GitHub Pages sẽ dùng 404.html cho mọi route không tồn tại, giúp SPA routing hoạt động
+          cp dist/index.html dist/404.html
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
