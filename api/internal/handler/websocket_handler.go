@@ -18,8 +18,9 @@ import (
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
-		// Allow all origins for now (in production, validate against allowed origins)
-		return true
+		origin := r.Header.Get("Origin")
+		// Reuse the same CORS allowlist as HTTP handlers
+		return isOriginAllowed(origin)
 	},
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
@@ -69,6 +70,10 @@ func (h *WebSocketHandler) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 		WriteError(w, fmt.Errorf("failed to upgrade connection: %w", err), http.StatusInternalServerError)
 		return
 	}
+
+	// Limit maximum incoming message/frame size to prevent abuse
+	// e.g. ~16KB per message is more than enough for chat content
+	conn.SetReadLimit(16 * 1024)
 
 	// Generate client ID
 	clientID, err := utils.GenerateID()

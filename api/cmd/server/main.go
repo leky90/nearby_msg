@@ -117,22 +117,23 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Create HTTP server with error handling middleware
+	// Create HTTP server with error handling + CORS middleware
 	mux := http.NewServeMux()
 
-	// Wrap all handlers with error handling middleware
+	// Middlewares
 	errorHandler := handler.ErrorHandlerMiddleware
+	cors := handler.CORSMiddleware
 
-	// Health check endpoint (no error middleware needed)
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+	// Health check endpoint (no auth, but still apply CORS for consistency)
+	mux.Handle("/health", cors(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
-	})
+	})))
 
 	// API v1 routes with error handling middleware
-	mux.Handle("/v1/device/register", errorHandler(http.HandlerFunc(deviceHandler.RegisterDevice)))
-	mux.Handle("/v1/device", errorHandler(http.HandlerFunc(deviceHandler.GetDevice)))
-	mux.Handle("/v1/device/", errorHandler(auth.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/v1/device/register", cors(errorHandler(http.HandlerFunc(deviceHandler.RegisterDevice))))
+	mux.Handle("/v1/device", cors(errorHandler(http.HandlerFunc(deviceHandler.GetDevice))))
+	mux.Handle("/v1/device/", cors(errorHandler(auth.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPatch {
 			deviceHandler.UpdateDevice(w, r)
 		} else if r.Method == http.MethodDelete {
@@ -140,24 +141,24 @@ func main() {
 		} else {
 			handler.WriteError(w, fmt.Errorf("method not allowed"), http.StatusMethodNotAllowed)
 		}
-	}))))
+	})))))
 
 	// Group routes
-	mux.Handle("/v1/groups/nearby", errorHandler(http.HandlerFunc(groupHandler.GetNearbyGroups)))
-	mux.Handle("/v1/groups/suggest", errorHandler(http.HandlerFunc(groupHandler.SuggestGroup)))
-	mux.Handle("/v1/groups", errorHandler(auth.AuthMiddleware(http.HandlerFunc(groupHandler.CreateGroup))))
+	mux.Handle("/v1/groups/nearby", cors(errorHandler(http.HandlerFunc(groupHandler.GetNearbyGroups))))
+	mux.Handle("/v1/groups/suggest", cors(errorHandler(http.HandlerFunc(groupHandler.SuggestGroup))))
+	mux.Handle("/v1/groups", cors(errorHandler(auth.AuthMiddleware(http.HandlerFunc(groupHandler.CreateGroup)))))
 	// Group and favorite routes (handler will route based on path and method)
-	mux.Handle("/v1/groups/", errorHandler(auth.AuthMiddleware(http.HandlerFunc(groupHandler.HandleGroupRoutes))))
+	mux.Handle("/v1/groups/", cors(errorHandler(auth.AuthMiddleware(http.HandlerFunc(groupHandler.HandleGroupRoutes)))))
 
 	// Replication routes
-	mux.Handle("/v1/replicate/push", errorHandler(auth.AuthMiddleware(http.HandlerFunc(replicationHandler.Push))))
-	mux.Handle("/v1/replicate/pull", errorHandler(auth.AuthMiddleware(http.HandlerFunc(replicationHandler.Pull))))
+	mux.Handle("/v1/replicate/push", cors(errorHandler(auth.AuthMiddleware(http.HandlerFunc(replicationHandler.Push)))))
+	mux.Handle("/v1/replicate/pull", cors(errorHandler(auth.AuthMiddleware(http.HandlerFunc(replicationHandler.Pull)))))
 
 	// Message routes (pin/unpin)
-	mux.Handle("/v1/messages/", errorHandler(auth.AuthMiddleware(http.HandlerFunc(messageHandler.HandleMessageRoutes))))
+	mux.Handle("/v1/messages/", cors(errorHandler(auth.AuthMiddleware(http.HandlerFunc(messageHandler.HandleMessageRoutes)))))
 
 	// Status routes
-	mux.Handle("/v1/status", errorHandler(auth.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/v1/status", cors(errorHandler(auth.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPut {
 			statusHandler.UpdateStatus(w, r)
 		} else if r.Method == http.MethodGet {
@@ -165,11 +166,12 @@ func main() {
 		} else {
 			handler.WriteError(w, fmt.Errorf("method not allowed"), http.StatusMethodNotAllowed)
 		}
-	}))))
+	})))))
 	// Group status summary route (must be before /v1/groups/ to avoid conflict)
-	mux.Handle("/v1/groups/status-summary", errorHandler(auth.AuthMiddleware(http.HandlerFunc(groupHandler.GetGroupStatusSummary))))
+	mux.Handle("/v1/groups/status-summary", cors(errorHandler(auth.AuthMiddleware(http.HandlerFunc(groupHandler.GetGroupStatusSummary)))))
 
 	// WebSocket route (no error middleware needed, handled by WebSocket handler)
+	// CORS for WebSocket is enforced via CheckOrigin in websocket upgrader
 	mux.HandleFunc("/ws/messages", wsHandler.HandleWebSocket)
 
 	server := &http.Server{

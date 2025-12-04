@@ -6,7 +6,7 @@ import (
 )
 
 var (
-	ErrInvalidMessageContent = errors.New("message content must be 1-500 characters")
+	ErrInvalidMessageContent = errors.New("message content must be 1-2048 characters")
 	ErrInvalidMessageType    = errors.New("invalid message type")
 	ErrInvalidSOSType        = errors.New("invalid SOS type")
 	ErrSOSTypeRequired       = errors.New("SOS type is required for SOS messages")
@@ -48,9 +48,31 @@ type Message struct {
 
 // Validate validates message fields
 func (m *Message) Validate() error {
-	if len(m.Content) < 1 || len(m.Content) > 500 {
+	// Basic content length guard (1–2048 characters, ~2KB max)
+	if len(m.Content) < 1 || len(m.Content) > 2048 {
 		return ErrInvalidMessageContent
 	}
+	// Basic group and device validation
+	if m.GroupID == "" {
+		return errors.New("group_id is required")
+	}
+	if m.DeviceID == "" {
+		return errors.New("device_id is required")
+	}
+
+	// Validate tags: limit count and length
+	if len(m.Tags) > 16 {
+		return errors.New("too many tags (max 16)")
+	}
+	for _, tag := range m.Tags {
+		if len(tag) == 0 {
+			return errors.New("tag cannot be empty")
+		}
+		if len(tag) > 64 {
+			return errors.New("tag too long (max 64 characters)")
+		}
+	}
+
 	if !m.MessageType.IsValid() {
 		return ErrInvalidMessageType
 	}

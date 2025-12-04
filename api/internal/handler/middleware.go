@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"runtime/debug"
+	"strings"
 
 	"nearby-msg/api/internal/infrastructure/auth"
 	"nearby-msg/api/internal/infrastructure/logging"
@@ -31,6 +32,54 @@ func ErrorHandlerMiddleware(next http.Handler) http.Handler {
 		// Wrap response writer to capture status code
 		rw := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
 		next.ServeHTTP(rw, r)
+	})
+}
+
+// Allowed frontend origins (HTTPS only in production)
+var allowedOrigins = []string{
+	"https://nearby-group.ldktech.com",
+	// Development origins (can be adjusted or removed in production config)
+	"http://localhost:5173",
+	"http://localhost:4173",
+}
+
+// isOriginAllowed checks if Origin header is in the allowlist
+func isOriginAllowed(origin string) bool {
+	if origin == "" {
+		return false
+	}
+	for _, o := range allowedOrigins {
+		if strings.EqualFold(o, origin) {
+			return true
+		}
+	}
+	return false
+}
+
+// CORSMiddleware applies strict CORS policy:
+// - Only allow specific origins (no "*")
+// - Allow Authorization header for JWT-protected routes
+// - Handle OPTIONS preflight requests
+func CORSMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if isOriginAllowed(origin) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+			// Allow credentials so JWT in Authorization header can be used
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+		}
+
+		// Handle preflight requests early
+		if r.Method == http.MethodOptions {
+			// If origin is not allowed, just return 204 without CORS headers
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		next.ServeHTTP(w, r)
 	})
 }
 

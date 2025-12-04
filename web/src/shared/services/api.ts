@@ -1,23 +1,26 @@
 /**
- * HTTP client for API calls
- * Handles authentication, request/response formatting, and error handling
+ * HTTP client cho các call API
+ * - Dev: ưu tiên proxy (`/api`) để tận dụng Vite proxy
+ * - Prod: ưu tiên biến môi trường backend URL, tránh fallback về localhost
  */
-
-// In development, use proxy if VITE_API_URL is not set
-// In production, use VITE_API_URL or fallback to absolute URL
 const getApiUrl = (): string => {
-  // If VITE_API_URL is explicitly set, use it (for production or custom setup)
+  // Ưu tiên biến VITE_BACKEND_URL (được set trong GitHub Actions & Docker)
+  if (import.meta.env.VITE_BACKEND_URL) {
+    return import.meta.env.VITE_BACKEND_URL;
+  }
+
+  // Hỗ trợ VITE_API_URL để tương thích ngược nếu đã dùng trước đó
   if (import.meta.env.VITE_API_URL) {
     return import.meta.env.VITE_API_URL;
   }
-  
-  // In development mode, use proxy (relative URL)
+
+  // Trong môi trường development: dùng proxy tương đối
   if (import.meta.env.DEV) {
-    return '/api'; // Proxy configured in vite.config.ts
+    return "/api"; // Proxy cấu hình trong vite.config.ts
   }
-  
-  // Production fallback
-  return 'http://localhost:8080/v1';
+
+  // Fallback cuối cùng cho production nếu không có biến env (không khuyến khích)
+  return "http://localhost:8080/v1";
 };
 
 const API_URL = getApiUrl();
@@ -33,7 +36,7 @@ export interface ApiError {
  * @returns JWT token or null
  */
 function getToken(): string | null {
-  return localStorage.getItem('jwt_token');
+  return localStorage.getItem("jwt_token");
 }
 
 /**
@@ -41,14 +44,14 @@ function getToken(): string | null {
  * @param token - JWT token to store
  */
 export function setToken(token: string): void {
-  localStorage.setItem('jwt_token', token);
+  localStorage.setItem("jwt_token", token);
 }
 
 /**
  * Removes the JWT token
  */
 export function clearToken(): void {
-  localStorage.removeItem('jwt_token');
+  localStorage.removeItem("jwt_token");
 }
 
 /**
@@ -65,12 +68,12 @@ async function request<T>(
   const token = getToken();
 
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
+    "Content-Type": "application/json",
     ...(options.headers as Record<string, string>),
   };
 
   if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
+    headers["Authorization"] = `Bearer ${token}`;
   }
 
   const response = await fetch(url, {
@@ -81,7 +84,7 @@ async function request<T>(
   if (!response.ok) {
     let errorMessage = `Request failed: ${response.statusText}`;
     let errorCode: string | undefined;
-    
+
     try {
       const errorData = await response.json();
       errorMessage = errorData.message || errorMessage;
@@ -107,8 +110,8 @@ async function request<T>(
   }
 
   // Handle empty responses
-  const contentType = response.headers.get('content-type');
-  if (contentType && contentType.includes('application/json')) {
+  const contentType = response.headers.get("content-type");
+  if (contentType && contentType.includes("application/json")) {
     return response.json();
   }
 
@@ -121,7 +124,7 @@ async function request<T>(
  * @returns Promise resolving to response data
  */
 export async function get<T>(endpoint: string): Promise<T> {
-  return request<T>(endpoint, { method: 'GET' });
+  return request<T>(endpoint, { method: "GET" });
 }
 
 /**
@@ -132,7 +135,7 @@ export async function get<T>(endpoint: string): Promise<T> {
  */
 export async function post<T>(endpoint: string, data?: unknown): Promise<T> {
   return request<T>(endpoint, {
-    method: 'POST',
+    method: "POST",
     body: data ? JSON.stringify(data) : undefined,
   });
 }
@@ -145,7 +148,7 @@ export async function post<T>(endpoint: string, data?: unknown): Promise<T> {
  */
 export async function put<T>(endpoint: string, data?: unknown): Promise<T> {
   return request<T>(endpoint, {
-    method: 'PUT',
+    method: "PUT",
     body: data ? JSON.stringify(data) : undefined,
   });
 }
@@ -158,7 +161,7 @@ export async function put<T>(endpoint: string, data?: unknown): Promise<T> {
  */
 export async function patch<T>(endpoint: string, data?: unknown): Promise<T> {
   return request<T>(endpoint, {
-    method: 'PATCH',
+    method: "PATCH",
     body: data ? JSON.stringify(data) : undefined,
   });
 }
@@ -169,6 +172,5 @@ export async function patch<T>(endpoint: string, data?: unknown): Promise<T> {
  * @returns Promise resolving to response data
  */
 export async function del<T>(endpoint: string): Promise<T> {
-  return request<T>(endpoint, { method: 'DELETE' });
+  return request<T>(endpoint, { method: "DELETE" });
 }
-
